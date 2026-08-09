@@ -124,15 +124,15 @@ export default function AjustesView({ onRefresh }) {
                 Modelo de Gemini Seleccionado:
               </label>
               <select 
-                value={settings.gemini_model || 'gemini-2.0-flash'} 
+                value={settings.gemini_model || 'gemini-3.6-flash'} 
                 onChange={e => setSettings({ ...settings, gemini_model: e.target.value })}
                 style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}
               >
-                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Recomendado ✓)</option>
-                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
-                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Estándar)</option>
-                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Razonamiento profundo)</option>
+                <option value="gemini-3.6-flash">Gemini 3.6 Flash (Recomendado - Ultra Rápido y Estable ✓)</option>
+                <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
               </select>
+
             </div>
           </div>
 

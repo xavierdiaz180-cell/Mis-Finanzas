@@ -9,13 +9,14 @@ async function getGeminiConfig() {
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-2.0-flash';
-  if (!modelName || modelName.includes('2.5')) {
-    modelName = 'gemini-2.0-flash';
+  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-3.6-flash';
+  if (!modelName || modelName.includes('2.5') || modelName === 'gemini-2.0-flash') {
+    modelName = 'gemini-3.6-flash';
   }
 
   return { apiKey, modelName };
 }
+
 
 
 /**
@@ -72,41 +73,47 @@ async function parseVoiceDictation(text, categories, accounts) {
     return fallbackVoiceParser(text, categories, accounts);
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
+  const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-omni-flash-preview']));
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-    const prompt = `
-      Eres el intérprete financiero de la aplicación "Mis Finanzas".
-      Analiza la siguiente frase dictada por el usuario: "${text}".
+  const prompt = `
+    Eres el intérprete financiero de la aplicación "Mis Finanzas".
+    Analiza la siguiente frase dictada por el usuario: "${text}".
 
-      Catálogo de Cuentas del usuario:
-      ${JSON.stringify(accounts.map(a => ({ id: a.id, name: a.name, type: a.type })))}
+    Catálogo de Cuentas del usuario:
+    ${JSON.stringify(accounts.map(a => ({ id: a.id, name: a.name, type: a.type })))}
 
-      Catálogo de Categorías válidas:
-      ${JSON.stringify(categories)}
+    Catálogo de Categorías válidas:
+    ${JSON.stringify(categories)}
 
-      Responde ÚNICAMENTE con un objeto JSON válido (sin código markdown extra) con la siguiente estructura:
-      {
-        "type": "expense" | "income" | "payment",
-        "amount": número o 0 si falta,
-        "concept": "descripción breve del gasto/ingreso",
-        "category": "categoría correspondiente del catálogo o 'Otros'",
-        "account_id": id_de_la_cuenta_coincidente o null si falta,
-        "account_name": "nombre de la cuenta coincidente o vacía",
-        "date": "YYYY-MM-DD",
-        "missing_fields": ["monto", "cuenta", "concepto", "categoría"] // array con los nombres de campos esenciales que faltan o están en 0/null
-      }
-    `;
+    Responde ÚNICAMENTE con un objeto JSON válido (sin código markdown extra) con la siguiente estructura:
+    {
+      "type": "expense" | "income" | "payment",
+      "amount": número o 0 si falta,
+      "concept": "descripción breve del gasto/ingreso",
+      "category": "categoría correspondiente del catálogo o 'Otros'",
+      "account_id": id_de_la_cuenta_coincidente o null si falta,
+      "account_name": "nombre de la cuenta coincidente o vacía",
+      "date": "YYYY-MM-DD",
+      "missing_fields": ["monto", "cuenta", "concepto", "categoría"] // array con los nombres de campos esenciales que faltan o están en 0/null
+    }
+  `;
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text().trim();
-    const cleanJsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJsonText);
-  } catch (error) {
-    console.error('Error al llamar a Gemini para dictado de voz:', error.message);
-    return fallbackVoiceParser(text, categories, accounts);
+  for (const curModel of candidateModels) {
+    try {
+      const model = genAI.getGenerativeModel({ model: curModel });
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text().trim();
+      const cleanJsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJsonText);
+    } catch (error) {
+      console.warn(`⚠️ Dictado de voz modelo ${curModel} falló:`, error.message.substring(0, 100));
+    }
   }
+
+  console.error('Todos los modelos Gemini fallaron para dictado de voz, usando fallback.');
+  return fallbackVoiceParser(text, categories, accounts);
+
 }
 
 /**
@@ -168,64 +175,76 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
-    try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: modelName });
+    const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-omni-flash-preview']));
+    let lastError = null;
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-      const imagePart = {
-        inlineData: {
-          data: fileBuffer.toString('base64'),
-          mimeType: mimeType || 'image/png'
-        }
-      };
+    const imagePart = {
+      inlineData: {
+        data: fileBuffer.toString('base64'),
+        mimeType: mimeType || 'image/png'
+      }
+    };
 
-      const prompt = `
-        Eres un extractor especializado en estados de cuenta bancarios mexicanos.
-        Analiza la imagen del documento adjunto (tipo: ${docType}) y extrae exactamente los datos indicados.
+    const prompt = `
+      Eres un extractor especializado en estados de cuenta bancarios mexicanos.
+      Analiza la imagen del documento adjunto (tipo: ${docType}) y extrae exactamente los datos indicados.
 
-        === REGLAS ESTRICTAS PARA credit_card (estado de cuenta tarjeta de crédito) ===
-        - "total_balance": El campo "Pago para no generar intereses" o "Saldo total" o "Pago requerido este periodo". Es el monto total que debes pagar para no generar intereses. NO confundir con "Adeudo del periodo anterior".
-        - "minimum_payment": El campo "Pago mínimo" exacto. Suele ser el monto más pequeño requerido.
-        - "cutoff_date": La "Fecha de corte" en formato YYYY-MM-DD.
-        - "due_date": La "Fecha límite de pago" en formato YYYY-MM-DD. NO confundir con fecha de corte.
-        - "available_credit": El "Crédito disponible" si aparece. Si no, déjalo en 0.
-        - "interest_rate": La "Tasa de interés anual variable" o "CAT" como número (ej: 68.51 para 68.51%). NO es un valor en pesos.
-        - "msi_plans": Array de cargos a meses sin intereses. Cada elemento: { "concept": "...", "monthly_amount": 0, "remaining_installments": 0 }. Array vacío si no hay MSI.
+      === REGLAS ESTRICTAS PARA credit_card (estado de cuenta tarjeta de crédito) ===
+      - "total_balance": El campo "Pago para no generar intereses" o "Saldo total" o "Pago requerido este periodo". Es el monto total que debes pagar para no generar intereses. NO confundir con "Adeudo del periodo anterior".
+      - "minimum_payment": El campo "Pago mínimo" exacto. Suele ser el monto más pequeño requerido.
+      - "cutoff_date": La "Fecha de corte" en formato YYYY-MM-DD.
+      - "due_date": La "Fecha límite de pago" en formato YYYY-MM-DD. NO confundir con fecha de corte.
+      - "available_credit": El "Crédito disponible" si aparece. Si no, déjalo en 0.
+      - "interest_rate": La "Tasa de interés anual variable" o "CAT" como número (ej: 68.51 para 68.51%). NO es un valor en pesos.
+      - "msi_plans": Array de cargos a meses sin intereses. Cada elemento: { "concept": "...", "monthly_amount": 0, "remaining_installments": 0 }. Array vacío si no hay MSI.
 
-        === REGLAS PARA payroll (recibo de nómina) ===
-        - "deposit_amount": El monto neto depositado / "Importe neto a pagar"
-        - "payroll_loans_deduction": Descuentos por préstamos de nómina, si aplica
-        - "employer": Nombre de la empresa empleadora
-        - "date": Fecha del recibo en formato YYYY-MM-DD
+      === REGLAS PARA payroll (recibo de nómina) ===
+      - "deposit_amount": El monto neto depositado / "Importe neto a pagar"
+      - "payroll_loans_deduction": Descuentos por préstamos de nómina, si aplica
+      - "employer": Nombre de la empresa empleadora
+      - "date": Fecha del recibo en formato YYYY-MM-DD
 
-        === REGLAS PARA receipt (recibo de servicio) ===
-        - "vendor": Nombre del proveedor (CFE, Telmex, etc.)
-        - "concept": Descripción del servicio
-        - "amount": Monto total a pagar
-        - "frequency": "monthly" | "bimonthly" | "yearly"
-        - "due_date": Fecha límite de pago YYYY-MM-DD
+      === REGLAS PARA receipt (recibo de servicio) ===
+      - "vendor": Nombre del proveedor (CFE, Telmex, etc.)
+      - "concept": Descripción del servicio
+      - "amount": Monto total a pagar
+      - "frequency": "monthly" | "bimonthly" | "yearly"
+      - "due_date": Fecha límite de pago YYYY-MM-DD
 
-        Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional).
-        Para credit_card: { "total_balance": 0, "available_credit": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "minimum_payment": 0, "interest_rate": 0, "msi_plans": [] }
-        Para payroll: { "deposit_amount": 0, "payroll_loans_deduction": 0, "employer": "", "date": "YYYY-MM-DD" }
-        Para receipt: { "vendor": "", "concept": "", "amount": 0, "frequency": "monthly", "due_date": "YYYY-MM-DD" }
-      `;
+      Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional).
+      Para credit_card: { "total_balance": 0, "available_credit": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "minimum_payment": 0, "interest_rate": 0, "msi_plans": [] }
+      Para payroll: { "deposit_amount": 0, "payroll_loans_deduction": 0, "employer": "", "date": "YYYY-MM-DD" }
+      Para receipt: { "vendor": "", "concept": "", "amount": 0, "frequency": "monthly", "due_date": "YYYY-MM-DD" }
+    `;
 
-      const result = await model.generateContent([prompt, imagePart]);
-      const responseText = result.response.text().trim();
-      const cleanJsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-      extractedData = JSON.parse(cleanJsonText);
-      console.log('✅ Gemini Vision extrajo datos correctamente:', JSON.stringify(extractedData));
-    } catch (error) {
-      if (error.message && (error.message.includes('429') || error.message.includes('Quota exceeded') || error.message.includes('limit: 0'))) {
+    for (const curModel of candidateModels) {
+      try {
+        const model = genAI.getGenerativeModel({ model: curModel });
+        const result = await model.generateContent([prompt, imagePart]);
+        const responseText = result.response.text().trim();
+        const cleanJsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+        extractedData = JSON.parse(cleanJsonText);
+        console.log(`✅ Gemini Vision (${curModel}) extrajo datos correctamente:`, JSON.stringify(extractedData));
+        geminiError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        console.warn(`⚠️ Modelo ${curModel} falló:`, err.message.substring(0, 100));
+      }
+    }
+
+    if (!extractedData) {
+      if (lastError && (lastError.message.includes('429') || lastError.message.includes('Quota exceeded') || lastError.message.includes('limit: 0'))) {
         geminiError = 'La clave API ingresada no tiene cuota disponible (limit: 0). Genera una clave gratuita en Google AI Studio (aistudio.google.com/apikey).';
       } else {
-        geminiError = error.message;
+        geminiError = lastError ? lastError.message : 'Error desconocido al escanear documento.';
       }
-      console.error('❌ Error Gemini Vision:', error.message);
+      console.error('❌ Todos los modelos Gemini fallaron:', geminiError);
       extractedData = fallbackDocumentScanner(docType, referenceName);
     }
   }
+
 
 
 
