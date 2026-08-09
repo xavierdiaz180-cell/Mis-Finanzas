@@ -217,11 +217,16 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
       extractedData = JSON.parse(cleanJsonText);
       console.log('✅ Gemini Vision extrajo datos correctamente:', JSON.stringify(extractedData));
     } catch (error) {
-      geminiError = error.message;
+      if (error.message && (error.message.includes('429') || error.message.includes('Quota exceeded') || error.message.includes('limit: 0'))) {
+        geminiError = 'La clave API ingresada no tiene cuota disponible (limit: 0). Genera una clave gratuita en Google AI Studio (aistudio.google.com/apikey).';
+      } else {
+        geminiError = error.message;
+      }
       console.error('❌ Error Gemini Vision:', error.message);
       extractedData = fallbackDocumentScanner(docType, referenceName);
     }
   }
+
 
 
   // Discrepancy Check against existing DB entries
