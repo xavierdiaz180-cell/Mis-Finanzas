@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check } from 'lucide-react';
+import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check, Sparkles } from 'lucide-react';
+import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
+
 
 export default function CarteraView({ onRefresh }) {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [accountDetails, setAccountDetails] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDocScanner, setShowDocScanner] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editName, setEditName] = useState('');
   const [editBalance, setEditBalance] = useState('');
@@ -16,6 +19,10 @@ export default function CarteraView({ onRefresh }) {
   const [newAccType, setNewAccType] = useState('bank');
   const [newAccBalance, setNewAccBalance] = useState('');
   const [newAccCreditLimit, setNewAccCreditLimit] = useState('');
+  const [newAccInterestRate, setNewAccInterestRate] = useState('');
+  const [newAccDueDate, setNewAccDueDate] = useState('');
+  const [newAccCutoffDate, setNewAccCutoffDate] = useState('');
+
 
   const loadAccounts = () => {
     fetch(`${API_BASE}/api/accounts`)
@@ -81,9 +88,13 @@ export default function CarteraView({ onRefresh }) {
         name: newAccName,
         type: newAccType,
         balance: parseFloat(newAccBalance || 0),
-        credit_limit: parseFloat(newAccCreditLimit || 0)
+        credit_limit: parseFloat(newAccCreditLimit || 0),
+        interest_rate: parseFloat(newAccInterestRate || 0),
+        due_date: newAccDueDate || null,
+        cutoff_date: newAccCutoffDate || null
       })
     })
+
       .then(res => res.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
@@ -91,9 +102,13 @@ export default function CarteraView({ onRefresh }) {
         setNewAccName('');
         setNewAccBalance('');
         setNewAccCreditLimit('');
+        setNewAccInterestRate('');
+        setNewAccDueDate('');
+        setNewAccCutoffDate('');
         loadAccounts();
         if (onRefresh) onRefresh();
       })
+
       .catch(err => alert('Error al agregar cuenta: ' + err.message));
   };
 
@@ -131,14 +146,33 @@ export default function CarteraView({ onRefresh }) {
           </p>
         </div>
 
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="nav-tab-btn active"
-          style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', padding: '0.75rem 1.25rem' }}
-        >
-          <Plus size={18} /> Agregar Cuenta
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button 
+            onClick={() => setShowDocScanner(true)}
+            className="nav-tab-btn"
+            style={{ background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.4)', color: '#a78bfa', padding: '0.75rem 1.25rem' }}
+          >
+            <Sparkles size={18} /> Escanear Estado de Cuenta (IA Gemini)
+          </button>
+
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="nav-tab-btn active"
+            style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', padding: '0.75rem 1.25rem' }}
+          >
+            <Plus size={18} /> Agregar Cuenta
+          </button>
+        </div>
       </div>
+
+      {showDocScanner && (
+        <DocumentScannerModal 
+          docType="credit_card" 
+          onClose={() => setShowDocScanner(false)} 
+          onReconciled={() => { loadAccounts(); if (onRefresh) onRefresh(); }} 
+        />
+      )}
+
 
       {/* Account Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
@@ -402,20 +436,39 @@ export default function CarteraView({ onRefresh }) {
               </div>
 
               {newAccType === 'credit_card' && (
-                <div>
-                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                    Límite de Crédito Total ($):
-                  </label>
-                  <input 
-                    type="number" 
-                    value={newAccCreditLimit} 
-                    onChange={e => setNewAccCreditLimit(e.target.value)}
-                    placeholder="25000.00"
-                    step="0.01"
-                    style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
-                  />
-                </div>
+                <>
+                  <div>
+                    <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                      Límite de Crédito Total ($):
+                    </label>
+                    <input 
+                      type="number" 
+                      value={newAccCreditLimit} 
+                      onChange={e => setNewAccCreditLimit(e.target.value)}
+                      placeholder="25000.00"
+                      step="0.01"
+                      style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha de Corte:</label>
+                      <input type="date" value={newAccCutoffDate} onChange={e => setNewAccCutoffDate(e.target.value)} style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha Límite de Pago:</label>
+                      <input type="date" value={newAccDueDate} onChange={e => setNewAccDueDate(e.target.value)} style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Tasa de Interés / CAT Anual (%):</label>
+                    <input type="number" value={newAccInterestRate} onChange={e => setNewAccInterestRate(e.target.value)} placeholder="68.5" step="0.01" style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                  </div>
+                </>
               )}
+
 
               <button 
                 type="submit"

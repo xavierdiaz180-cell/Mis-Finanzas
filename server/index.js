@@ -478,13 +478,26 @@ app.post('/api/debts/:id/pay', async (req, res) => {
       [newDebtBalance, newRemainingPayments, id]
     );
 
+    // Update origin account (e.g. debit account used to pay)
     if (account.type === 'credit_card') {
       await dbRun('UPDATE accounts SET available_credit = available_credit + ? WHERE id = ?', [parseFloat(amount), account_id]);
     } else {
       await dbRun('UPDATE accounts SET balance = balance - ? WHERE id = ?', [parseFloat(amount), account_id]);
     }
 
+    // If debt is a credit card, also update the target credit card account's balance and available_credit
+    if (debt.type === 'credit_card') {
+      const ccAccount = await dbGet('SELECT * FROM accounts WHERE type = "credit_card" AND (name LIKE ? OR name LIKE ?)', [debt.name, `%${debt.name}%`]);
+      if (ccAccount) {
+        await dbRun(
+          'UPDATE accounts SET balance = MAX(0, balance - ?), available_credit = available_credit + ? WHERE id = ?',
+          [parseFloat(amount), parseFloat(amount), ccAccount.id]
+        );
+      }
+    }
+
     const today = new Date().toISOString().split('T')[0];
+
     await dbRun(
       `INSERT INTO transactions (date, type, amount, category, concept, account_id, source, status)
        VALUES (?, 'payment', ?, 'Pago de Deuda', ?, ?, 'manual_confirm', 'confirmed')`,
