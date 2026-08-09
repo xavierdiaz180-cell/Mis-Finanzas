@@ -9,10 +9,14 @@ async function getGeminiConfig() {
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-2.0-flash';
+  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-2.0-flash';
+  if (!modelName || modelName.includes('2.5')) {
+    modelName = 'gemini-2.0-flash';
+  }
 
   return { apiKey, modelName };
 }
+
 
 /**
  * Fallback parser for voice dictation when offline or no API key provided
