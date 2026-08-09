@@ -38,7 +38,7 @@ export default function AjustesView({ onRefresh }) {
   const handleSaveSettings = (e) => {
     e.preventDefault();
 
-    fetch('/api/settings', {
+    fetch(`${API_BASE}/api/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)

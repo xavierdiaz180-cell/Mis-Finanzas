@@ -56,7 +56,7 @@ export default function DeudasView({ onRefresh }) {
     e.preventDefault();
     if (!name) return alert('Ingresa un nombre para la deuda.');
 
-    fetch('/api/debts', {
+    fetch(`${API_BASE}/api/debts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -90,7 +90,7 @@ export default function DeudasView({ onRefresh }) {
     e.preventDefault();
     if (!selectedDebt || !payAmount || !payAccountId) return;
 
-    fetch(`/api/debts/${selectedDebt.id}/pay`, {
+    fetch(`${API_BASE}/api/debts/${selectedDebt.id}/pay`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -113,7 +113,7 @@ export default function DeudasView({ onRefresh }) {
     e.preventDefault();
     if (!selectedDebt || !msiConcept || !msiTotal) return;
 
-    fetch('/api/installment-plans', {
+    fetch(`${API_BASE}/api/installment-plans`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
