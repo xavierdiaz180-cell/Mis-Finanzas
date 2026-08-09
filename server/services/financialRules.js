@@ -215,7 +215,60 @@ async function processTransaction({ date, type, amount, category, concept, accou
   };
 }
 
+/**
+ * Deletes a transaction and completely reverts all account balances and debt balances
+ */
+async function deleteTransaction(transactionId) {
+  const tx = await dbGet('SELECT * FROM transactions WHERE id = ?', [transactionId]);
+  if (!tx) throw new Error('Transacción no encontrada.');
+
+  const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [tx.account_id]);
+  const amount = parseFloat(tx.amount);
+
+  if (account) {
+    if (account.type === 'credit_card') {
+      if (tx.type === 'expense') {
+        const newAvailable = Math.min(account.credit_limit, account.available_credit + amount);
+        const newBalance = Math.max(0, account.balance - amount);
+        await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvailable, newBalance, account.id]);
+
+        // Sync corresponding debt
+        const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ?', [account.name, `%${account.name}%`]);
+        if (existingDebt) {
+          await dbRun('UPDATE debts SET current_balance = MAX(0, current_balance - ?) WHERE id = ?', [amount, existingDebt.id]);
+        }
+      } else if (tx.type === 'payment' || tx.type === 'income') {
+        const newAvailable = Math.max(0, account.available_credit - amount);
+        const newBalance = account.balance + amount;
+        await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvailable, newBalance, account.id]);
+      }
+    } else {
+      // Debit / Cash / Payroll / Bank
+      if (tx.type === 'expense') {
+        const newBalance = account.balance + amount;
+        await dbRun('UPDATE accounts SET balance = ? WHERE id = ?', [newBalance, account.id]);
+      } else if (tx.type === 'income' || tx.type === 'payment') {
+        const newBalance = account.balance - amount;
+        await dbRun('UPDATE accounts SET balance = ? WHERE id = ?', [newBalance, account.id]);
+        if (tx.type === 'income') {
+          await dbRun('DELETE FROM incomes WHERE account_id = ? AND date = ? AND amount = ?', [account.id, tx.date, amount]);
+        }
+      }
+    }
+  }
+
+  // Delete transaction record
+  await dbRun('DELETE FROM transactions WHERE id = ?', [transactionId]);
+
+  return {
+    success: true,
+    message: 'Gasto/Transacción eliminada y saldos restaurados correctamente.'
+  };
+}
+
 module.exports = {
   calculateFinancialMetrics,
-  processTransaction
+  processTransaction,
+  deleteTransaction
 };
+

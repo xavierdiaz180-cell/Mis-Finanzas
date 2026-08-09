@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Search, Filter, Calendar, Tag, Wallet, AlertTriangle, CheckCircle2, Sparkles, FileText } from 'lucide-react';
+import { Mic, Search, Filter, Calendar, Tag, Wallet, AlertTriangle, CheckCircle2, Sparkles, FileText, Trash2 } from 'lucide-react';
+
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
 
@@ -35,6 +36,20 @@ export default function GastosView({ onRefresh }) {
       .then(data => setExpenses(data))
       .catch(err => console.error('Error al cargar gastos:', err));
   };
+
+  const handleDeleteExpense = (id, concept, amount) => {
+    if (!window.confirm(`¿Eliminar el gasto "${concept}" por $${amount.toLocaleString('es-MX')}?\n\nEl monto de este gasto se devolverá automáticamente a los saldos de tu cuenta o tarjeta.`)) return;
+
+    fetch(`${API_BASE}/api/transactions/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        loadData();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al eliminar gasto: ' + err.message));
+  };
+
 
   useEffect(() => {
     fetch(`${API_BASE}/api/categories`)
@@ -328,11 +343,22 @@ export default function GastosView({ onRefresh }) {
                   </div>
                 </div>
 
-                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#f43f5e' }}>
-                  -${exp.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#f43f5e' }}>
+                    -${exp.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </div>
+
+                  <button 
+                    onClick={() => handleDeleteExpense(exp.id, exp.concept, exp.amount)}
+                    title="Eliminar gasto y restaurar saldos"
+                    style={{ background: 'rgba(244, 63, 94, 0.12)', border: '1px solid rgba(244, 63, 94, 0.3)', color: '#f43f5e', borderRadius: '6px', padding: '0.45rem 0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', fontWeight: '600' }}
+                  >
+                    <Trash2 size={15} /> Eliminar
+                  </button>
                 </div>
               </div>
             ))
+
           )}
         </div>
       </div>

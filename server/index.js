@@ -3,7 +3,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
 const { initDatabase, dbAll, dbGet, dbRun } = require('./database');
-const { calculateFinancialMetrics, processTransaction } = require('./services/financialRules');
+const { calculateFinancialMetrics, processTransaction, deleteTransaction } = require('./services/financialRules');
+
 const { parseVoiceDictation, analyzeDocument } = require('./services/geminiService');
 const { generateCoachChatResponse, getCoachRecommendations } = require('./services/coachService');
 const { getFullAnalysisData } = require('./services/analysisService');
@@ -304,6 +305,17 @@ app.post('/api/transactions', async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 });
+
+app.delete('/api/transactions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await deleteTransaction(id);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.get('/api/incomes', async (req, res) => {
   try {
