@@ -96,11 +96,38 @@ app.get('/api/categories', (req, res) => {
 app.get('/api/accounts', async (req, res) => {
   try {
     const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1 ORDER BY id ASC');
-    res.json(accounts);
+    const installmentPlans = await dbAll('SELECT * FROM installment_plans');
+    const debts = await dbAll('SELECT * FROM debts');
+
+    const processedAccounts = accounts.map(acc => {
+      if (acc.type === 'credit_card') {
+        // Find debts matching this account
+        const matchingDebts = debts.filter(d => d.name === acc.name || d.name.toLowerCase().includes(acc.name.toLowerCase()) || acc.name.toLowerCase().includes(d.name.toLowerCase()));
+        const debtIds = matchingDebts.map(d => d.id);
+
+        // Sum remaining balances of all MSI plans linked to this account or its debts
+        const msiPlans = installmentPlans.filter(p => p.account_id === acc.id || debtIds.includes(p.debt_id));
+        const msiPending = msiPlans.reduce((sum, p) => sum + (p.remaining_balance || 0), 0);
+
+        const totalDebt = (acc.balance || 0) + msiPending;
+        const available = acc.credit_limit > 0 ? Math.max(0, acc.credit_limit - totalDebt) : acc.available_credit;
+
+        return {
+          ...acc,
+          msi_pending: msiPending,
+          total_debt: totalDebt,
+          available_credit: available
+        };
+      }
+      return acc;
+    });
+
+    res.json(processedAccounts);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.post('/api/accounts', async (req, res) => {
   try {

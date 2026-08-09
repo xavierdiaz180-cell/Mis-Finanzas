@@ -202,10 +202,16 @@ export default function CarteraView({ onRefresh }) {
                   ${(acc.available_credit || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                  Límite total: ${acc.credit_limit.toLocaleString('es-MX')} | Deuda: ${(acc.credit_limit - acc.available_credit).toLocaleString('es-MX')}
+                  Límite total: ${acc.credit_limit.toLocaleString('es-MX')} | Deuda Total: ${(acc.total_debt || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </div>
+                {acc.msi_pending > 0 && (
+                  <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '0.3rem', background: 'rgba(251, 191, 36, 0.08)', padding: '0.35rem 0.5rem', borderRadius: '4px', border: '1px dashed rgba(251, 191, 36, 0.3)' }}>
+                    Revolvente: ${(acc.balance || 0).toLocaleString('es-MX')} + MSI: ${acc.msi_pending.toLocaleString('es-MX')}
+                  </div>
+                )}
               </div>
             ) : (
+
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Saldo Actual:</span>
                 <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#60a5fa' }}>
