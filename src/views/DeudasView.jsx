@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Plus, DollarSign, Calendar, Percent, AlertTriangle, CheckCircle2, X, Sparkles } from 'lucide-react';
+import { CreditCard, Plus, DollarSign, Calendar, Percent, AlertTriangle, CheckCircle2, X, Sparkles, Trash2 } from 'lucide-react';
+
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
 
@@ -51,6 +52,33 @@ export default function DeudasView({ onRefresh }) {
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleDeleteDebt = (id, debtName, currentBalance) => {
+    if (!window.confirm(`¿Eliminar la deuda "${debtName}" por $${currentBalance.toLocaleString('es-MX')}?\n\nEsta acción eliminará el registro de la deuda y removerá las tarjetas o planes MSI vinculados.`)) return;
+
+    fetch(`${API_BASE}/api/debts/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        loadData();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al eliminar deuda: ' + err.message));
+  };
+
+  const handleDeleteMSIPlan = (planId, concept) => {
+    if (!window.confirm(`¿Eliminar el plan a MSI "${concept}"?`)) return;
+
+    fetch(`${API_BASE}/api/installment-plans/${planId}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        loadData();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al eliminar plan MSI: ' + err.message));
+  };
+
 
   const handleCreateDebt = (e) => {
     e.preventDefault();
@@ -217,10 +245,20 @@ export default function DeudasView({ onRefresh }) {
                       {debt.type === 'credit_card' ? 'Tarjeta de Crédito' : debt.type === 'payroll_loan' ? 'Préstamo de Nómina' : 'Préstamo Personal'}
                     </span>
                   </div>
-                  <span className="badge badge-warning">
-                    Tasa: {debt.interest_rate}%
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="badge badge-warning">
+                      Tasa: {debt.interest_rate}%
+                    </span>
+                    <button 
+                      onClick={() => handleDeleteDebt(debt.id, debt.name, debt.current_balance)}
+                      title="Eliminar Deuda"
+                      style={{ background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', color: '#f43f5e', borderRadius: '6px', padding: '0.35rem 0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
+
 
                 <div style={{ margin: '0.75rem 0' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Saldo Pendiente:</span>
@@ -247,13 +285,23 @@ export default function DeudasView({ onRefresh }) {
                       Planes a Meses Sin Intereses (MSI):
                     </span>
                     {debt.msi_plans.map(msi => (
-                      <div key={msi.id} style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between' }}>
+                      <div key={msi.id} style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{msi.concept} ({msi.installments_paid}/{msi.installments_total} meses)</span>
-                        <span style={{ fontWeight: '600', color: '#a78bfa' }}>${msi.monthly_amount}/mes</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: '600', color: '#a78bfa' }}>${msi.monthly_amount}/mes</span>
+                          <button 
+                            onClick={() => handleDeleteMSIPlan(msi.id, msi.concept)}
+                            title="Eliminar este plan MSI"
+                            style={{ background: 'transparent', border: 'none', color: '#f43f5e', cursor: 'pointer', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
+
               </div>
 
               {/* Action buttons */}

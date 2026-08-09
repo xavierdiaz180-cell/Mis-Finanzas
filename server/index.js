@@ -567,6 +567,16 @@ app.post('/api/debts/:id/pay', async (req, res) => {
     );
 
     res.json({ success: true, message: 'Pago a deuda registrado y saldos actualizados.' });
+app.delete('/api/debts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
+    if (debt) {
+      await dbRun('DELETE FROM installment_plans WHERE debt_id = ?', [id]);
+      await dbRun('DELETE FROM accounts WHERE name LIKE ? AND type = "credit_card"', [debt.name]);
+      await dbRun('DELETE FROM debts WHERE id = ?', [id]);
+    }
+    res.json({ success: true, message: 'Deuda y sus planes asociados eliminados correctamente.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -580,6 +590,17 @@ app.get('/api/installment-plans', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.delete('/api/installment-plans/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await dbRun('DELETE FROM installment_plans WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Plan a Meses Sin Intereses eliminado.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.post('/api/installment-plans', async (req, res) => {
   try {
