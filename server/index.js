@@ -116,7 +116,17 @@ app.post('/api/accounts', async (req, res) => {
       [name, type, parseFloat(balance), initialAvailable, parseFloat(credit_limit), parseFloat(interest_rate), due_date, cutoff_date]
     );
 
+    if (type === 'credit_card') {
+      const debtAmount = parseFloat(balance) > 0 ? parseFloat(balance) : (parseFloat(credit_limit) - initialAvailable);
+      await dbRun(
+        `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
+         VALUES (?, 'credit_card', ?, ?, ?, ?, ?)`,
+        [name, debtAmount, debtAmount, debtAmount * 0.05, parseFloat(interest_rate), due_date]
+      );
+    }
+
     res.json({ success: true, account_id: result.lastID, message: 'Cuenta agregada exitosamente.' });
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -591,22 +601,67 @@ app.post('/api/documents/reconcile', async (req, res) => {
         );
       }
     } else if (doc_type === 'credit_card' && account_id) {
+      const totalBalance = parseFloat(extracted_data.total_balance || 0);
       const availableCredit = parseFloat(extracted_data.available_credit || 0);
+      const minPayment = parseFloat(extracted_data.minimum_payment || 0);
+      const interestRate = parseFloat(extracted_data.interest_rate || 0);
+      const dueDate = extracted_data.due_date || null;
+      const cutoffDate = extracted_data.cutoff_date || null;
 
-      if (availableCredit > 0) {
-        await dbRun('UPDATE accounts SET available_credit = ?, due_date = ? WHERE id = ?', [availableCredit, extracted_data.due_date, account_id]);
-      }
+      const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
+      if (account) {
+        const calculatedLimit = account.credit_limit > 0 ? account.credit_limit : (totalBalance + availableCredit);
+        const calculatedAvailable = availableCredit > 0 ? availableCredit : Math.max(0, calculatedLimit - totalBalance);
 
-      if (extracted_data.msi_plans && Array.isArray(extracted_data.msi_plans)) {
-        for (const msi of extracted_data.msi_plans) {
+        await dbRun(
+          `UPDATE accounts SET 
+            balance = ?, 
+            available_credit = ?, 
+            credit_limit = ?, 
+            interest_rate = ?, 
+            due_date = ?, 
+            cutoff_date = ? 
+           WHERE id = ?`,
+          [totalBalance, calculatedAvailable, calculatedLimit, interestRate, dueDate, cutoffDate, account_id]
+        );
+
+        // Upsert Debt entry corresponding to this Credit Card
+        const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ?', [account.name, `%${account.name}%`]);
+        let debtId;
+        if (existingDebt) {
+          debtId = existingDebt.id;
           await dbRun(
-            `INSERT INTO installment_plans (account_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
-             VALUES (?, ?, ?, ?, ?, 0, ?)`,
-            [account_id, msi.concept, msi.monthly_amount * (msi.remaining_installments || 6), msi.monthly_amount, msi.remaining_installments || 6, msi.monthly_amount * (msi.remaining_installments || 6)]
+            `UPDATE debts SET 
+              original_amount = CASE WHEN original_amount = 0 THEN ? ELSE original_amount END,
+              current_balance = ?, 
+              payment_amount = ?, 
+              interest_rate = ?, 
+              due_date = ? 
+             WHERE id = ?`,
+            [totalBalance, totalBalance, minPayment, interestRate, dueDate, existingDebt.id]
           );
+        } else {
+          const debtRes = await dbRun(
+            `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
+             VALUES (?, 'credit_card', ?, ?, ?, ?, ?)`,
+            [account.name, totalBalance, totalBalance, minPayment, interestRate, dueDate]
+          );
+          debtId = debtRes.lastID;
+        }
+
+        // Process MSI plans attached to debt & account
+        if (extracted_data.msi_plans && Array.isArray(extracted_data.msi_plans)) {
+          for (const msi of extracted_data.msi_plans) {
+            await dbRun(
+              `INSERT INTO installment_plans (account_id, debt_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+              [account_id, debtId, msi.concept, msi.monthly_amount * (msi.remaining_installments || 6), msi.monthly_amount, msi.remaining_installments || 6, msi.monthly_amount * (msi.remaining_installments || 6)]
+            );
+          }
         }
       }
     }
+
 
     if (document_id) {
       await dbRun("UPDATE documents SET reconciliation_status = 'reconciled' WHERE id = ?", [document_id]);
