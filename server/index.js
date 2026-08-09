@@ -567,6 +567,11 @@ app.post('/api/debts/:id/pay', async (req, res) => {
     );
 
     res.json({ success: true, message: 'Pago a deuda registrado y saldos actualizados.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.delete('/api/debts/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -581,6 +586,7 @@ app.delete('/api/debts/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.get('/api/installment-plans', async (req, res) => {
   try {
