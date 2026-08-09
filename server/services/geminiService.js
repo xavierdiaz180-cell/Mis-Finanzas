@@ -9,7 +9,7 @@ async function getGeminiConfig() {
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-2.0-flash';
 
   return { apiKey, modelName };
 }

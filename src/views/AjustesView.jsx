@@ -7,7 +7,7 @@ export default function AjustesView({ onRefresh }) {
     user_name: 'Usuario',
     daily_budget_limit: '200',
     gemini_api_key: '',
-    gemini_model: 'gemini-2.5-flash',
+    gemini_model: 'gemini-2.0-flash',
     financial_freedom_age: '55',
     financial_freedom_target: '10000000'
   });
@@ -57,7 +57,7 @@ export default function AjustesView({ onRefresh }) {
     setGeminiTestResult(null);
 
     // Call /api/voice/process with test text
-    fetch('/api/voice/process', {
+    fetch(`${API_BASE}/api/voice/process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dictation_text: 'Prueba de conexión con Gemini' })
@@ -124,11 +124,12 @@ export default function AjustesView({ onRefresh }) {
                 Modelo de Gemini Seleccionado:
               </label>
               <select 
-                value={settings.gemini_model || 'gemini-2.5-flash'} 
+                value={settings.gemini_model || 'gemini-2.0-flash'} 
                 onChange={e => setSettings({ ...settings, gemini_model: e.target.value })}
                 style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}
               >
-                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recomendado - Ultra rápido)</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Recomendado ✓)</option>
+                <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Experimental</option>
                 <option value="gemini-1.5-flash">Gemini 1.5 Flash (Estándar)</option>
                 <option value="gemini-1.5-pro">Gemini 1.5 Pro (Razonamiento profundo)</option>
               </select>
