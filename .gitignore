@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.env
+server/mis_finanzas.db
+*.log
