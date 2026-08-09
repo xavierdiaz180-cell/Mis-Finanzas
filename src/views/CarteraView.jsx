@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X } from 'lucide-react';
+import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check } from 'lucide-react';
 import { API_BASE } from '../config';
 
 export default function CarteraView({ onRefresh }) {
@@ -7,6 +7,9 @@ export default function CarteraView({ onRefresh }) {
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [accountDetails, setAccountDetails] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editBalance, setEditBalance] = useState('');
 
   // Form state for adding account
   const [newAccName, setNewAccName] = useState('');
@@ -31,8 +34,40 @@ export default function CarteraView({ onRefresh }) {
       .then(data => {
         setSelectedAccount(data.account);
         setAccountDetails(data);
+        setEditMode(false);
+        setEditName(data.account.name);
+        setEditBalance(data.account.balance);
       })
       .catch(err => console.error('Error al cargar detalle de cuenta:', err));
+  };
+
+  const handleDeleteAccount = (id) => {
+    if (!window.confirm('¿Eliminar esta cuenta y todas sus transacciones? Esta acción no se puede deshacer.')) return;
+    fetch(`${API_BASE}/api/accounts/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(() => {
+        setSelectedAccount(null);
+        setAccountDetails(null);
+        loadAccounts();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al eliminar: ' + err.message));
+  };
+
+  const handleEditAccount = (id) => {
+    fetch(`${API_BASE}/api/accounts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editName, balance: parseFloat(editBalance) })
+    })
+      .then(res => res.json())
+      .then(() => {
+        setEditMode(false);
+        openAccountDetails(id);
+        loadAccounts();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al editar: ' + err.message));
   };
 
   const handleAddAccount = (e) => {
@@ -178,7 +213,70 @@ export default function CarteraView({ onRefresh }) {
               </button>
             </div>
 
-            {/* Account Metrics Grid */}
+            {/* Header with Edit/Delete buttons */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {getAccountIcon(selectedAccount.type)}
+                <div>
+                  {editMode ? (
+                    <input
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '4px 8px', color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: '600', width: '180px' }}
+                    />
+                  ) : (
+                    <h3 style={{ fontSize: '1.3rem' }}>{selectedAccount.name}</h3>
+                  )}
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{getAccountTypeName(selectedAccount.type)}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {editMode ? (
+                  <>
+                    <button onClick={() => handleEditAccount(selectedAccount.id)}
+                      style={{ background: '#10b981', border: 'none', borderRadius: '6px', padding: '6px 12px', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem' }}>
+                      <Check size={14} /> Guardar
+                    </button>
+                    <button onClick={() => setEditMode(false)}
+                      style={{ background: 'transparent', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '6px 10px', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.85rem' }}>
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setEditMode(true)}
+                      title="Editar cuenta"
+                      style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '6px', padding: '6px 10px', color: '#60a5fa', cursor: 'pointer' }}>
+                      <Edit3 size={15} />
+                    </button>
+                    <button onClick={() => handleDeleteAccount(selectedAccount.id)}
+                      title="Eliminar cuenta"
+                      style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)', borderRadius: '6px', padding: '6px 10px', color: '#f43f5e', cursor: 'pointer' }}>
+                      <Trash2 size={15} />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => { setSelectedAccount(null); setAccountDetails(null); setEditMode(false); }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            {/* Edit Balance when in edit mode */}
+            {editMode && selectedAccount.type !== 'credit_card' && (
+              <div style={{ marginBottom: '1rem', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: '8px', padding: '1rem' }}>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.4rem' }}>Saldo actual (corregir a tu saldo real):</label>
+                <input
+                  type="number"
+                  value={editBalance}
+                  onChange={e => setEditBalance(e.target.value)}
+                  style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '8px 12px', color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: '600', width: '100%' }}
+                />
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
               <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Ingresos del Mes</span>

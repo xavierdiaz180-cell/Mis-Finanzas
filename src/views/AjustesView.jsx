@@ -16,6 +16,8 @@ export default function AjustesView({ onRefresh }) {
   const [testingGemini, setTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+
 
   const loadSettings = () => {
     fetch(`${API_BASE}/api/settings`)
@@ -236,6 +238,34 @@ export default function AjustesView({ onRefresh }) {
         </div>
 
       </form>
+
+      {/* Danger Zone - Reset Data */}
+      <div className="glass-card" style={{ border: '1px solid rgba(244,63,94,0.3)', background: 'rgba(244,63,94,0.05)' }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: '700', color: '#f43f5e', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          🗑️ Zona de Peligro
+        </h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+          Borra <strong>todos los datos de prueba</strong> (cuentas, gastos, ingresos, inversiones, deudas) para empezar desde cero con tus datos reales. Esta acción es <strong>irreversible</strong>.
+        </p>
+        <button
+          onClick={() => {
+            if (!window.confirm('⚠️ ¿Estás seguro? Se eliminarán TODOS los datos: cuentas, transacciones, inversiones y deudas. Esta acción no se puede deshacer.')) return;
+            setResetLoading(true);
+            fetch(`${API_BASE}/api/reset`, { method: 'POST' })
+              .then(res => res.json())
+              .then(data => {
+                alert('✅ ' + data.message);
+                if (onRefresh) onRefresh();
+              })
+              .catch(err => alert('Error: ' + err.message))
+              .finally(() => setResetLoading(false));
+          }}
+          disabled={resetLoading}
+          style={{ background: resetLoading ? 'rgba(244,63,94,0.3)' : 'rgba(244,63,94,0.8)', border: 'none', borderRadius: '8px', padding: '0.75rem 1.5rem', color: '#fff', cursor: resetLoading ? 'not-allowed' : 'pointer', fontWeight: '600', fontSize: '0.9rem' }}
+        >
+          {resetLoading ? 'Eliminando...' : '🗑️ Limpiar todos los datos de prueba'}
+        </button>
+      </div>
 
     </div>
   );

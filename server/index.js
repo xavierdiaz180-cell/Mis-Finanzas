@@ -164,6 +164,38 @@ app.get('/api/accounts/:id', async (req, res) => {
   }
 });
 
+app.put('/api/accounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, balance, credit_limit } = req.body;
+    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [id]);
+    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+
+    const newBalance = balance !== undefined ? parseFloat(balance) : account.balance;
+    const newLimit = credit_limit !== undefined ? parseFloat(credit_limit) : account.credit_limit;
+    const newAvailable = account.type === 'credit_card' ? newLimit - (account.credit_limit - account.available_credit) : newBalance;
+
+    await dbRun(
+      'UPDATE accounts SET name = ?, balance = ?, available_credit = ?, credit_limit = ? WHERE id = ?',
+      [name || account.name, newBalance, newAvailable, newLimit, id]
+    );
+    res.json({ success: true, message: 'Cuenta actualizada.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await dbRun('DELETE FROM transactions WHERE account_id = ?', [id]);
+    await dbRun('DELETE FROM accounts WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Cuenta y sus transacciones eliminadas.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Transactions (GASTOS & INGRESOS)
 app.get('/api/transactions', async (req, res) => {
   try {
@@ -680,6 +712,21 @@ app.delete('/api/recurring/:id', async (req, res) => {
     const { id } = req.params;
     await dbRun('UPDATE recurring_expenses SET active = 0 WHERE id = ?', [id]);
     res.json({ success: true, message: 'Gasto recurrente eliminado.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reset all data (borrar datos de prueba)
+app.post('/api/reset', async (req, res) => {
+  try {
+    await dbRun('DELETE FROM transactions');
+    await dbRun('DELETE FROM accounts');
+    await dbRun('DELETE FROM investments');
+    await dbRun('DELETE FROM debts');
+    await dbRun('DELETE FROM debt_payments');
+    await dbRun('DELETE FROM recurring_expenses');
+    res.json({ success: true, message: 'Todos los datos han sido eliminados. Puedes empezar de cero.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
