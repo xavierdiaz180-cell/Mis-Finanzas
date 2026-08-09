@@ -143,16 +143,39 @@ app.post('/api/accounts', async (req, res) => {
       [name, type, parseFloat(balance), initialAvailable, parseFloat(credit_limit), parseFloat(interest_rate), due_date, cutoff_date]
     );
 
+    let debtId = null;
     if (type === 'credit_card') {
-      const debtAmount = parseFloat(balance) > 0 ? parseFloat(balance) : (parseFloat(credit_limit) - initialAvailable);
-      await dbRun(
+      const debtAmount = parseFloat(balance);
+      const minPayment = parseFloat(req.body.minimum_payment || debtAmount * 0.05);
+      const debtResult = await dbRun(
         `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
          VALUES (?, 'credit_card', ?, ?, ?, ?, ?)`,
-        [name, debtAmount, debtAmount, debtAmount * 0.05, parseFloat(interest_rate), due_date]
+        [name, debtAmount, debtAmount, minPayment, parseFloat(interest_rate), due_date]
       );
+      debtId = debtResult.lastID;
     }
 
-    res.json({ success: true, account_id: result.lastID, message: 'Cuenta agregada exitosamente.' });
+    if (req.body.msi_plans && Array.isArray(req.body.msi_plans)) {
+      for (const msi of req.body.msi_plans) {
+        if (msi.concept && parseFloat(msi.monthly_amount) > 0) {
+          const totalInst = parseInt(msi.installments_total || 12, 10);
+          const paidInst = parseInt(msi.installments_paid || 0, 10);
+          const remInst = Math.max(0, totalInst - paidInst);
+          const monthly = parseFloat(msi.monthly_amount);
+          const totalAmt = parseFloat(msi.total_amount || (monthly * totalInst));
+          const remBal = monthly * remInst;
+
+          await dbRun(
+            `INSERT INTO installment_plans (account_id, debt_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [result.lastID, debtId, msi.concept, totalAmt, monthly, totalInst, paidInst, remBal]
+          );
+        }
+      }
+    }
+
+    res.json({ success: true, account_id: result.lastID, debt_id: debtId, message: 'Cuenta agregada exitosamente.' });
+
 
   } catch (error) {
     res.status(500).json({ error: error.message });

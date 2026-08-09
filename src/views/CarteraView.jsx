@@ -18,10 +18,14 @@ export default function CarteraView({ onRefresh }) {
   const [newAccName, setNewAccName] = useState('');
   const [newAccType, setNewAccType] = useState('bank');
   const [newAccBalance, setNewAccBalance] = useState('');
+  const [newAccTotalBalance, setNewAccTotalBalance] = useState('');
   const [newAccCreditLimit, setNewAccCreditLimit] = useState('');
+  const [newAccMinPayment, setNewAccMinPayment] = useState('');
   const [newAccInterestRate, setNewAccInterestRate] = useState('');
   const [newAccDueDate, setNewAccDueDate] = useState('');
   const [newAccCutoffDate, setNewAccCutoffDate] = useState('');
+  const [newAccMsiPlans, setNewAccMsiPlans] = useState([]);
+
 
 
   const loadAccounts = () => {
@@ -91,25 +95,47 @@ export default function CarteraView({ onRefresh }) {
         credit_limit: parseFloat(newAccCreditLimit || 0),
         interest_rate: parseFloat(newAccInterestRate || 0),
         due_date: newAccDueDate || null,
-        cutoff_date: newAccCutoffDate || null
+        cutoff_date: newAccCutoffDate || null,
+        minimum_payment: parseFloat(newAccMinPayment || 0),
+        msi_plans: newAccMsiPlans
       })
     })
-
       .then(res => res.json())
       .then(data => {
         if (data.error) throw new Error(data.error);
         setShowAddModal(false);
         setNewAccName('');
         setNewAccBalance('');
+        setNewAccTotalBalance('');
         setNewAccCreditLimit('');
+        setNewAccMinPayment('');
         setNewAccInterestRate('');
         setNewAccDueDate('');
         setNewAccCutoffDate('');
+        setNewAccMsiPlans([]);
         loadAccounts();
         if (onRefresh) onRefresh();
       })
-
       .catch(err => alert('Error al agregar cuenta: ' + err.message));
+  };
+
+  const handleAddMsiRow = () => {
+    setNewAccMsiPlans(prev => [
+      ...prev,
+      { id: Date.now(), concept: '', monthly_amount: '', installments_total: 12, installments_paid: 0 }
+    ]);
+  };
+
+  const handleUpdateMsiRow = (index, field, value) => {
+    setNewAccMsiPlans(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const handleRemoveMsiRow = (index) => {
+    setNewAccMsiPlans(prev => prev.filter((_, i) => i !== index));
   };
 
   const getAccountIcon = (type) => {
@@ -379,7 +405,7 @@ export default function CarteraView({ onRefresh }) {
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.7)',
+          background: 'rgba(0,0,0,0.75)',
           backdropFilter: 'blur(8px)',
           display: 'flex',
           justifyContent: 'center',
@@ -387,29 +413,15 @@ export default function CarteraView({ onRefresh }) {
           zIndex: 1000,
           padding: '1rem'
         }}>
-          <div className="glass-card" style={{ maxWidth: '480px', width: '100%' }}>
+          <div className="glass-card" style={{ maxWidth: '580px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 style={{ fontSize: '1.2rem' }}>+ Agregar Nueva Cuenta</h3>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: '700' }}>+ Agregar Nueva Cuenta / Tarjeta</h3>
               <button onClick={() => setShowAddModal(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleAddAccount} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                  Nombre Personalizado:
-                </label>
-                <input 
-                  type="text" 
-                  value={newAccName} 
-                  onChange={e => setNewAccName(e.target.value)}
-                  placeholder="Ej. Banorte Nómina, Efectivo Cartera, BBVA Platinum"
-                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
-                  required
-                />
-              </div>
-
               <div>
                 <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
                   Tipo de Cuenta:
@@ -419,74 +431,201 @@ export default function CarteraView({ onRefresh }) {
                   onChange={e => setNewAccType(e.target.value)}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}
                 >
-                  <option value="bank">Cuenta Bancaria / Débito</option>
-                  <option value="payroll">Cuenta de Nómina</option>
-                  <option value="cash">Efectivo</option>
-                  <option value="credit_card">Tarjeta de Crédito</option>
-                  <option value="loan">Préstamo / Crédito Personal</option>
+                  <option value="credit_card">💳 Tarjeta de Crédito</option>
+                  <option value="bank">🏦 Cuenta Bancaria / Débito</option>
+                  <option value="payroll">💼 Cuenta de Nómina</option>
+                  <option value="cash">💵 Efectivo</option>
+                  <option value="loan">📄 Préstamo / Crédito Personal</option>
                 </select>
               </div>
 
               <div>
                 <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                  {newAccType === 'credit_card' ? 'Saldo Deudor Actual ($):' : 'Saldo Inicial ($):'}
+                  Nombre Personalizado de la Cuenta / Tarjeta:
                 </label>
                 <input 
-                  type="number" 
-                  value={newAccBalance} 
-                  onChange={e => setNewAccBalance(e.target.value)}
-                  placeholder="0.00"
-                  step="0.01"
+                  type="text" 
+                  value={newAccName} 
+                  onChange={e => setNewAccName(e.target.value)}
+                  placeholder={newAccType === 'credit_card' ? 'Ej. BBVA Azul, DiDi, Nu' : 'Ej. Banamex Débito, Efectivo'}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                  required
                 />
               </div>
 
-              {newAccType === 'credit_card' && (
+              {newAccType === 'credit_card' ? (
                 <>
-                  <div>
-                    <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                      Límite de Crédito Total ($):
-                    </label>
-                    <input 
-                      type="number" 
-                      value={newAccCreditLimit} 
-                      onChange={e => setNewAccCreditLimit(e.target.value)}
-                      placeholder="25000.00"
-                      step="0.01"
-                      style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        Límite de Crédito Total ($):
+                      </label>
+                      <input 
+                        type="number" 
+                        value={newAccCreditLimit} 
+                        onChange={e => setNewAccCreditLimit(e.target.value)}
+                        placeholder="44700.00"
+                        step="0.01"
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        Saldo Deudor del Mes ($):
+                      </label>
+                      <input 
+                        type="number" 
+                        value={newAccBalance} 
+                        onChange={e => setNewAccBalance(e.target.value)}
+                        placeholder="7394.60"
+                        step="0.01"
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                      />
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>*Lo que debes pagar este mes (pago sin intereses)</span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     <div>
-                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha de Corte:</label>
-                      <input type="date" value={newAccCutoffDate} onChange={e => setNewAccCutoffDate(e.target.value)} style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        Saldo Total Actual ($) [Opción]:
+                      </label>
+                      <input 
+                        type="number" 
+                        value={newAccTotalBalance} 
+                        onChange={e => setNewAccTotalBalance(e.target.value)}
+                        placeholder="22439.90"
+                        step="0.01"
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                      />
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>*Todo lo que debes acumulado (incluyendo MSI)</span>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                        Pago Mínimo del Mes ($):
+                      </label>
+                      <input 
+                        type="number" 
+                        value={newAccMinPayment} 
+                        onChange={e => setNewAccMinPayment(e.target.value)}
+                        placeholder="369.73"
+                        step="0.01"
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Informative MSI Difference Banner */}
+                  {parseFloat(newAccTotalBalance || 0) > parseFloat(newAccBalance || 0) && (
+                    <div style={{ background: 'rgba(167, 139, 250, 0.1)', border: '1px solid rgba(167, 139, 250, 0.3)', color: '#a78bfa', padding: '0.65rem', borderRadius: '6px', fontSize: '0.78rem' }}>
+                      ✨ Diferencia detectada para Meses Sin Intereses (MSI): <strong>${(parseFloat(newAccTotalBalance) - parseFloat(newAccBalance || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>. Puedes desglosar tus compras diferidas abajo:
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Fecha de Corte:</label>
+                      <input type="date" value={newAccCutoffDate} onChange={e => setNewAccCutoffDate(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.82rem' }} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha Límite de Pago:</label>
-                      <input type="date" value={newAccDueDate} onChange={e => setNewAccDueDate(e.target.value)} style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                      <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Fecha Límite Pago:</label>
+                      <input type="date" value={newAccDueDate} onChange={e => setNewAccDueDate(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.82rem' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Tasa / CAT (%):</label>
+                      <input type="number" value={newAccInterestRate} onChange={e => setNewAccInterestRate(e.target.value)} placeholder="68.5" step="0.01" style={{ width: '100%', padding: '0.55rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.82rem' }} />
                     </div>
                   </div>
 
-                  <div>
-                    <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Tasa de Interés / CAT Anual (%):</label>
-                    <input type="number" value={newAccInterestRate} onChange={e => setNewAccInterestRate(e.target.value)} placeholder="68.5" step="0.01" style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                  {/* Dynamic MSI Section */}
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: '600', color: '#a78bfa' }}>
+                        🛍️ Desglose de Meses Sin Intereses (MSI):
+                      </label>
+                      <button 
+                        type="button" 
+                        onClick={handleAddMsiRow}
+                        style={{ background: 'rgba(167, 139, 250, 0.15)', border: '1px solid rgba(167, 139, 250, 0.4)', color: '#a78bfa', borderRadius: '6px', padding: '0.35rem 0.65rem', fontSize: '0.78rem', cursor: 'pointer' }}
+                      >
+                        + Agregar Compra MSI
+                      </button>
+                    </div>
+
+                    {newAccMsiPlans.length === 0 ? (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: '6px' }}>
+                        Sin compras a MSI agregadas. Haz clic en "+ Agregar Compra MSI" para desglozarlas.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                        {newAccMsiPlans.map((msi, idx) => (
+                          <div key={msi.id || idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: '6px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                              <input 
+                                placeholder="Concepto (Ej. Carro Laura)" 
+                                value={msi.concept} 
+                                onChange={e => handleUpdateMsiRow(idx, 'concept', e.target.value)}
+                                style={{ flex: 2, padding: '0.4rem', borderRadius: '4px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.8rem' }}
+                              />
+                              <input 
+                                type="number" 
+                                placeholder="$ / mes" 
+                                value={msi.monthly_amount} 
+                                onChange={e => handleUpdateMsiRow(idx, 'monthly_amount', e.target.value)}
+                                style={{ flex: 1, padding: '0.4rem', borderRadius: '4px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.8rem' }}
+                              />
+                              <select 
+                                value={msi.installments_total} 
+                                onChange={e => handleUpdateMsiRow(idx, 'installments_total', e.target.value)}
+                                style={{ flex: 1, padding: '0.4rem', borderRadius: '4px', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white', fontSize: '0.8rem' }}
+                              >
+                                <option value="3">3 mes</option>
+                                <option value="6">6 mes</option>
+                                <option value="9">9 mes</option>
+                                <option value="12">12 mes</option>
+                                <option value="18">18 mes</option>
+                                <option value="24">24 mes</option>
+                              </select>
+                              <button type="button" onClick={() => handleRemoveMsiRow(idx)} style={{ background: 'transparent', border: 'none', color: '#f43f5e', cursor: 'pointer' }}>
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
+              ) : (
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                    Saldo Inicial ($):
+                  </label>
+                  <input 
+                    type="number" 
+                    value={newAccBalance} 
+                    onChange={e => setNewAccBalance(e.target.value)}
+                    placeholder="0.00"
+                    step="0.01"
+                    style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+                  />
+                </div>
               )}
-
 
               <button 
                 type="submit"
                 className="nav-tab-btn active"
                 style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', padding: '0.75rem' }}
               >
-                Guardar Cuenta
+                Guardar Cuenta / Tarjeta
               </button>
             </form>
           </div>
         </div>
       )}
+
 
     </div>
   );
