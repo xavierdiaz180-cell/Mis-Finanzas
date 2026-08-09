@@ -173,13 +173,35 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
       };
 
       const prompt = `
-        Analiza la imagen o documento adjunto (${docType}) y extrae los datos clave para la app Mis Finanzas.
-        Tipo de documento: ${docType} (credit_card | payroll | receipt).
+        Eres un extractor especializado en estados de cuenta bancarios mexicanos.
+        Analiza la imagen del documento adjunto (tipo: ${docType}) y extrae exactamente los datos indicados.
 
-        Responde ÚNICAMENTE en JSON con el formato adecuado:
-        Si es credit_card: { "total_balance": 0, "available_credit": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "minimum_payment": 0, "interest_rate": 0, "msi_plans": [] }
-        Si es payroll: { "deposit_amount": 0, "payroll_loans_deduction": 0, "employer": "", "date": "YYYY-MM-DD" }
-        Si es receipt: { "vendor": "", "concept": "", "amount": 0, "frequency": "monthly|bimonthly|yearly", "due_date": "YYYY-MM-DD" }
+        === REGLAS ESTRICTAS PARA credit_card (estado de cuenta tarjeta de crédito) ===
+        - "total_balance": El campo "Pago para no generar intereses" o "Saldo total" o "Pago requerido este periodo". Es el monto total que debes pagar para no generar intereses. NO confundir con "Adeudo del periodo anterior".
+        - "minimum_payment": El campo "Pago mínimo" exacto. Suele ser el monto más pequeño requerido.
+        - "cutoff_date": La "Fecha de corte" en formato YYYY-MM-DD.
+        - "due_date": La "Fecha límite de pago" en formato YYYY-MM-DD. NO confundir con fecha de corte.
+        - "available_credit": El "Crédito disponible" si aparece. Si no, déjalo en 0.
+        - "interest_rate": La "Tasa de interés anual variable" o "CAT" como número (ej: 68.51 para 68.51%). NO es un valor en pesos.
+        - "msi_plans": Array de cargos a meses sin intereses. Cada elemento: { "concept": "...", "monthly_amount": 0, "remaining_installments": 0 }. Array vacío si no hay MSI.
+
+        === REGLAS PARA payroll (recibo de nómina) ===
+        - "deposit_amount": El monto neto depositado / "Importe neto a pagar"
+        - "payroll_loans_deduction": Descuentos por préstamos de nómina, si aplica
+        - "employer": Nombre de la empresa empleadora
+        - "date": Fecha del recibo en formato YYYY-MM-DD
+
+        === REGLAS PARA receipt (recibo de servicio) ===
+        - "vendor": Nombre del proveedor (CFE, Telmex, etc.)
+        - "concept": Descripción del servicio
+        - "amount": Monto total a pagar
+        - "frequency": "monthly" | "bimonthly" | "yearly"
+        - "due_date": Fecha límite de pago YYYY-MM-DD
+
+        Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional).
+        Para credit_card: { "total_balance": 0, "available_credit": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "minimum_payment": 0, "interest_rate": 0, "msi_plans": [] }
+        Para payroll: { "deposit_amount": 0, "payroll_loans_deduction": 0, "employer": "", "date": "YYYY-MM-DD" }
+        Para receipt: { "vendor": "", "concept": "", "amount": 0, "frequency": "monthly", "due_date": "YYYY-MM-DD" }
       `;
 
       const result = await model.generateContent([prompt, imagePart]);
