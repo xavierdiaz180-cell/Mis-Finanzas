@@ -155,10 +155,13 @@ function fallbackDocumentScanner(docType, referenceName) {
 async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, existingData) {
   const { apiKey, modelName } = await getGeminiConfig();
 
+  let geminiError = null;
   let extractedData;
 
   if (!apiKey || !fileBuffer) {
-    console.log('Using smart simulated Gemini Vision extraction for document scan.');
+    const reason = !apiKey ? 'No hay clave API de Gemini configurada en la base de datos.' : 'No se recibió ningún archivo para escanear.';
+    console.log('Fallback:', reason);
+    geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
     try {
@@ -208,11 +211,14 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
       const responseText = result.response.text().trim();
       const cleanJsonText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       extractedData = JSON.parse(cleanJsonText);
+      console.log('✅ Gemini Vision extrajo datos correctamente:', JSON.stringify(extractedData));
     } catch (error) {
-      console.error('Error al analizar documento con Gemini Vision:', error.message);
+      geminiError = error.message;
+      console.error('❌ Error Gemini Vision:', error.message);
       extractedData = fallbackDocumentScanner(docType, referenceName);
     }
   }
+
 
   // Discrepancy Check against existing DB entries
   let discrepancy = false;
@@ -229,7 +235,8 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     docType,
     extractedData,
     discrepancy,
-    discrepancyDetails
+    discrepancyDetails,
+    geminiError
   };
 }
 

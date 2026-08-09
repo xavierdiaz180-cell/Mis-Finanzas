@@ -124,11 +124,22 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
           </form>
         ) : (
           <div>
-            <h4 style={{ fontSize: '1.05rem', color: '#34d399', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <CheckCircle2 size={18} /> Datos Extraídos por Gemini
+            <h4 style={{ fontSize: '1.05rem', color: scanResult.geminiError ? '#fbbf24' : '#34d399', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              {scanResult.geminiError ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+              {scanResult.geminiError ? 'Datos de Demostración (Gemini falló)' : 'Datos Extraídos por Gemini ✓'}
             </h4>
 
-            {/* Discrepancy Alert */}
+            {/* Gemini Error Warning */}
+            {scanResult.geminiError && (
+              <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: '#fbbf24', padding: '0.85rem', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                <strong>⚠️ Gemini no pudo leer el documento:</strong>
+                <div style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}>{scanResult.geminiError}</div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Los datos mostrados son de ejemplo. Ve a <strong>Ajustes</strong> → verifica tu clave Gemini y guarda de nuevo.
+                </div>
+              </div>
+            )}
+
             {scanResult.discrepancy && (
               <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: '#fbbf24', padding: '0.85rem', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                 <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
