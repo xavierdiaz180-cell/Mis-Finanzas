@@ -1,18 +1,30 @@
 const { Pool } = require('pg');
 const dns = require('dns');
 
-// Force IPv4 DNS resolution — required on Render free tier (no IPv6 outbound)
+// Force IPv4 DNS resolution — required on Render free tier
 dns.setDefaultResultOrder('ipv4first');
 
 const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  console.error('FATAL: DATABASE_URL environment variable is not set!');
+}
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
   connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 30000,
-  max: 10
+  max: 10,
+  // Supavisor transaction mode: disable named prepared statements
+  statement_timeout: 0,
+  query_timeout: 30000,
 });
+
+pool.on('error', (err) => {
+  console.error('Unexpected pool error:', err.message);
+});
+
 
 
 // Convert SQLite-style ? placeholders to PostgreSQL $1, $2, ...
