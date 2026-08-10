@@ -1,11 +1,19 @@
 const { Pool } = require('pg');
+const dns = require('dns');
+
+// Force IPv4 DNS resolution — required on Render free tier (no IPv6 outbound)
+dns.setDefaultResultOrder('ipv4first');
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 30000,
+  idleTimeoutMillis: 30000,
+  max: 10
 });
+
 
 // Convert SQLite-style ? placeholders to PostgreSQL $1, $2, ...
 function convertPlaceholders(sql) {
