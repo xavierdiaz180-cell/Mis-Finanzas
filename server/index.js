@@ -549,14 +549,15 @@ app.post('/api/debts/:id/pay', async (req, res) => {
 
     // If debt is a credit card, also update the target credit card account's balance and available_credit
     if (debt.type === 'credit_card') {
-      const ccAccount = await dbGet('SELECT * FROM accounts WHERE type = "credit_card" AND (name LIKE ? OR name LIKE ?)', [debt.name, `%${debt.name}%`]);
+      const ccAccount = await dbGet("SELECT * FROM accounts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)", [debt.name, `%${debt.name}%`]);
       if (ccAccount) {
         await dbRun(
-          'UPDATE accounts SET balance = MAX(0, balance - ?), available_credit = available_credit + ? WHERE id = ?',
+          'UPDATE accounts SET balance = GREATEST(0, balance - ?), available_credit = available_credit + ? WHERE id = ?',
           [parseFloat(amount), parseFloat(amount), ccAccount.id]
         );
       }
     }
+
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -578,7 +579,8 @@ app.delete('/api/debts/:id', async (req, res) => {
     const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
     if (debt) {
       await dbRun('DELETE FROM installment_plans WHERE debt_id = ?', [id]);
-      await dbRun('DELETE FROM accounts WHERE name LIKE ? AND type = "credit_card"', [debt.name]);
+      await dbRun("DELETE FROM accounts WHERE name LIKE ? AND type = 'credit_card'", [debt.name]);
+
       await dbRun('DELETE FROM debts WHERE id = ?', [id]);
     }
     res.json({ success: true, message: 'Deuda y sus planes asociados eliminados correctamente.' });

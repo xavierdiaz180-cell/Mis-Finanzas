@@ -235,7 +235,8 @@ async function deleteTransaction(transactionId) {
         // Sync corresponding debt
         const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ?', [account.name, `%${account.name}%`]);
         if (existingDebt) {
-          await dbRun('UPDATE debts SET current_balance = MAX(0, current_balance - ?) WHERE id = ?', [amount, existingDebt.id]);
+          await dbRun('UPDATE debts SET current_balance = GREATEST(0, current_balance - ?) WHERE id = ?', [amount, existingDebt.id]);
+
         }
       } else if (tx.type === 'payment' || tx.type === 'income') {
         const newAvailable = Math.max(0, account.available_credit - amount);
