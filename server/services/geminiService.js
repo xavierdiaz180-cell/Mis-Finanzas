@@ -73,7 +73,7 @@ async function parseVoiceDictation(text, categories, accounts) {
     return fallbackVoiceParser(text, categories, accounts);
   }
 
-  const candidateModels = Array.from(new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']));
+  const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const prompt = `
@@ -175,7 +175,7 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
-    const candidateModels = Array.from(new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']));
+    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
     let lastError = null;
     const genAI = new GoogleGenerativeAI(apiKey);
 
