@@ -103,18 +103,22 @@ export default function InicioView({ summary, onNavigate }) {
             </div>
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Disponible Hoy</span>
-              <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#34d399' }}>
-                ${presupuesto_diario.disponible_hoy || 0}
+              <div style={{ fontSize: '1.2rem', fontWeight: '600', color: (presupuesto_diario.disponible_hoy < 0) ? '#f43f5e' : '#34d399' }}>
+                ${(presupuesto_diario.disponible_hoy || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
               </div>
             </div>
           </div>
 
-          <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Resumen acumulado del mes:</span>
             <span style={{ fontSize: '1.1rem', fontWeight: '700', color: '#60a5fa' }}>
               ${(presupuesto_diario.acumulado_mes || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </span>
           </div>
+
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center' }}>
+            * El disponible diario renueva a +${presupuesto_diario.limite_diario || 200} pesos al iniciar el día de mañana.
+          </p>
         </div>
 
         {/* Coach Financial Snippet */}
