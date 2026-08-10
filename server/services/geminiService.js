@@ -175,7 +175,7 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
-    const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
+    const candidateModels = ['gemini-1.5-flash'];
     let lastError = null;
     const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -229,19 +229,19 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
         geminiError = null;
         break;
       } catch (err) {
-        lastError = err;
+        if (!lastError) lastError = err;
         console.warn(`⚠️ Modelo ${curModel} falló:`, err.message.substring(0, 100));
       }
     }
 
     if (!extractedData) {
       const msg = lastError ? lastError.message : '';
-      if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('authentication') || msg.includes('API_KEY_INVALID') || msg.includes('ACCESS_TOKEN')) {
-        geminiError = 'La clave de Gemini no es válida o expiró. Ve a Ajustes → ingresa tu clave gratuita de Google AI Studio (debe empezar con AIzaSy...).';
+      if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('authentication') || msg.includes('API_KEY_INVALID') || msg.includes('ACCESS_TOKEN') || apiKey.startsWith('AQ.')) {
+        geminiError = 'La clave de API utilizada (que inicia con AQ...) es un token de Google Cloud Console/OAuth, no una clave de API de Google AI Studio. Para usar Gemini IA, ingresa en Ajustes una clave gratuita creada en aistudio.google.com/app/apikey (debe iniciar con AIzaSy...).';
       } else if (msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('limit: 0')) {
-        geminiError = 'La clave API ingresada no tiene cuota disponible (limit: 0). Genera una clave gratuita en Google AI Studio (aistudio.google.com/apikey).';
+        geminiError = 'La clave API ingresada no tiene cuota disponible. Genera una clave gratuita en Google AI Studio (aistudio.google.com/app/apikey).';
       } else {
-        geminiError = lastError ? lastError.message : 'Error desconocido al escanear documento.';
+        geminiError = lastError ? lastError.message : 'Error al conectar con Gemini.';
       }
       console.error('❌ Todos los modelos Gemini fallaron:', geminiError);
       extractedData = fallbackDocumentScanner(docType, referenceName);
