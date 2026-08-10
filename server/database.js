@@ -38,10 +38,10 @@ const dbRun = async (sql, params = []) => {
   const converted = convertPlaceholders(sql);
   const trimmed = converted.trim().toUpperCase();
   
-  // For INSERTs, append RETURNING id to capture the new row's ID
+  // For INSERTs, append RETURNING id to capture the new row's ID (except settings table which uses key PK)
   const isInsert = trimmed.startsWith('INSERT');
-  // Only append RETURNING id if not already present
-  const finalSql = isInsert && !trimmed.includes('RETURNING') 
+  const isSettings = trimmed.includes('INTO SETTINGS');
+  const finalSql = (isInsert && !isSettings && !trimmed.includes('RETURNING'))
     ? converted + ' RETURNING id' 
     : converted;
 
