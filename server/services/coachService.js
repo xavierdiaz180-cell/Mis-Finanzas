@@ -32,7 +32,7 @@ async function generateCoachChatResponse(userMessage, chatHistory = []) {
   const keyRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_api_key'");
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-3.6-flash';
 
   const systemContext = `
     Eres el Coach Financiero personal de "Mis Finanzas".
@@ -113,7 +113,7 @@ async function generateDeepAnalysis() {
   const keyRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_api_key'");
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-3.6-flash';
 
   const contextData = {
     metrica_disponible_hoy: snapshot.metrics.disponible_hoy,

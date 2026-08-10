@@ -9,9 +9,9 @@ async function getGeminiConfig() {
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
-  if (!modelName || modelName.includes('3.6') || modelName.includes('3.5') || modelName.includes('omni') || modelName.includes('2.5')) {
-    modelName = 'gemini-1.5-flash';
+  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-3.6-flash';
+  if (!modelName || modelName.includes('1.5') || modelName.includes('2.0') || modelName.includes('2.5')) {
+    modelName = 'gemini-3.6-flash';
   }
 
   return { apiKey, modelName };
@@ -73,7 +73,7 @@ async function parseVoiceDictation(text, categories, accounts) {
     return fallbackVoiceParser(text, categories, accounts);
   }
 
-  const candidateModels = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
+  const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const prompt = `
@@ -175,7 +175,7 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
-    const candidateModels = ['gemini-1.5-flash'];
+    const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
     let lastError = null;
     const genAI = new GoogleGenerativeAI(apiKey);
 
