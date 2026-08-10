@@ -83,22 +83,26 @@ async function generateCoachChatResponse(userMessage, chatHistory = []) {
     return { reply: advice, snapshot };
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
+  const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-    const fullPrompt = `${systemContext}\n\nPregunta del Usuario: "${userMessage}"`;
-    const result = await model.generateContent(fullPrompt);
-    const reply = result.response.text();
+  const fullPrompt = `${systemContext}\n\nPregunta del Usuario: "${userMessage}"`;
 
-    return { reply, snapshot };
-  } catch (error) {
-    console.error('Error al generar respuesta del Coach:', error.message);
-    return {
-      reply: `Hola. He revisado tus números: cuentas con $${snapshot.metrics.disponible_hoy.toLocaleString('es-MX')} disponibles y una salud financiera de ${snapshot.metrics.salud_financiera.score}/100. Prioriza amortizar tus deudas con mayor tasa de interés este mes.`,
-      snapshot
-    };
+  for (const curModel of candidateModels) {
+    try {
+      const model = genAI.getGenerativeModel({ model: curModel });
+      const result = await model.generateContent(fullPrompt);
+      const reply = result.response.text();
+      return { reply, snapshot };
+    } catch (error) {
+      console.warn(`⚠️ Model ${curModel} chat error:`, error.message.substring(0, 100));
+    }
   }
+
+  return {
+    reply: `Hola. He revisado tus números: cuentas con $${snapshot.metrics.disponible_hoy.toLocaleString('es-MX')} disponibles y una salud financiera de ${snapshot.metrics.salud_financiera.score}/100. Prioriza amortizar tus deudas con mayor tasa de interés este mes.`,
+    snapshot
+  };
 }
 
 /**
@@ -192,65 +196,66 @@ async function generateDeepAnalysis() {
     return fallbackAnalysis;
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
+  const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-    const prompt = `
-      Eres el Asesor y Estratega Financiero Principal de "Mis Finanzas".
-      Analiza detalladamente el estado financiero del usuario y proporciona un informe estratégico profundo en formato JSON ESTRICTO.
+  const prompt = `
+    Eres el Asesor y Estratega Financiero Principal de "Mis Finanzas".
+    Analiza detalladamente el estado financiero del usuario y proporciona un informe estratégico profundo en formato JSON ESTRICTO.
 
-      DATOS FINANCIEROS COMPLETOS DEL USUARIO:
-      ${JSON.stringify(contextData, null, 2)}
+    DATOS FINANCIEROS COMPLETOS DEL USUARIO:
+    ${JSON.stringify(contextData, null, 2)}
 
-      DEBES RESPONDER ÚNICAMENTE UN OBJETO JSON CON LA SIGUIENTE ESTRUCTURA EXACTA (sin markdown adicional fuera del JSON):
+    DEBES RESPONDER ÚNICAMENTE UN OBJETO JSON CON LA SIGUIENTE ESTRUCTURA EXACTA (sin markdown adicional fuera del JSON):
 
-      {
-        "diagnostico": {
-          "resumen": "Explicación clara y detallada de su situación actual en 2-3 oraciones",
-          "puntos_fuertes": ["Punto fuerte 1", "Punto fuerte 2"],
-          "puntos_mejora": ["Área de mejora 1", "Área de mejora 2"]
-        },
-        "estrategia_deudas": {
-          "titulo": "Nombre de la estrategia recomendada (ej: Método Avalancha o Bola de Nieve)",
-          "recomendacion": "Explicación paso a paso de qué hacer con sus deudas",
-          "orden_pago": ["Prioridad 1: Nombre deuda - Razón", "Prioridad 2: ..."],
-          "ahorro_estimado": "Estimación del ahorro en tiempo/intereses si sigue el plan"
-        },
-        "estrategia_inversion": {
-          "titulo": "Estrategia de Crecimiento y Conservación de Capital",
-          "recomendacion": "Recomendación específica según su liquidez y nivel de riesgo",
-          "distribucion_sugerida": [
-            { "instrumento": "Nombre instrumento (ej: CETES / Sofipo / ETF)", "porcentaje": 50 }
-          ]
-        },
-        "plan_accion": {
-          "dias_30": ["Acción inmediata 1", "Acción inmediata 2"],
-          "dias_60": ["Acción mediano plazo 1", "Acción mediano plazo 2"],
-          "dias_90": ["Acción consolidación 1", "Acción consolidación 2"]
-        },
-        "libertad_financiera": {
-          "analisis": "Evaluación realista de su meta de retiro a la edad configurada",
-          "ritmo_actual": "Evaluación del ritmo (Buena velocidad, Requiere aceleración, etc.)",
-          "ajuste_sugerido": "Sugerencia concreta de aportación mensual necesaria"
-        },
-        "alertas": [
-          { "tipo": "danger" | "warning" | "info", "mensaje": "Descripción de la alerta o riesgo detectado" }
+    {
+      "diagnostico": {
+        "resumen": "Explicación clara y detallada de su situación actual en 2-3 oraciones",
+        "puntos_fuertes": ["Punto fuerte 1", "Punto fuerte 2"],
+        "puntos_mejora": ["Área de mejora 1", "Área de mejora 2"]
+      },
+      "estrategia_deudas": {
+        "titulo": "Nombre de la estrategia recomendada (ej: Método Avalancha o Bola de Nieve)",
+        "recomendacion": "Explicación paso a paso de qué hacer con sus deudas",
+        "orden_pago": ["Prioridad 1: Nombre deuda - Razón", "Prioridad 2: ..."],
+        "ahorro_estimado": "Estimación del ahorro en tiempo/intereses si sigue el plan"
+      },
+      "estrategia_inversion": {
+        "titulo": "Estrategia de Crecimiento y Conservación de Capital",
+        "recomendacion": "Recomendación específica según su liquidez y nivel de riesgo",
+        "distribucion_sugerida": [
+          { "instrumento": "Nombre instrumento (ej: CETES / Sofipo / ETF)", "porcentaje": 50 }
         ]
-      }
-    `;
+      },
+      "plan_accion": {
+        "dias_30": ["Acción inmediata 1", "Acción inmediata 2"],
+        "dias_60": ["Acción mediano plazo 1", "Acción mediano plazo 2"],
+        "dias_90": ["Acción consolidación 1", "Acción consolidación 2"]
+      },
+      "libertad_financiera": {
+        "analisis": "Evaluación realista de su meta de retiro a la edad configurada",
+        "ritmo_actual": "Evaluación del ritmo (Buena velocidad, Requiere aceleración, etc.)",
+        "ajuste_sugerido": "Sugerencia concreta de aportación mensual necesaria"
+      },
+      "alertas": [
+        { "tipo": "danger" | "warning" | "info", "mensaje": "Descripción de la alerta o riesgo detectado" }
+      ]
+    }
+  `;
 
-    const result = await model.generateContent(prompt);
-    const textResponse = result.response.text();
-    
-    // Clean JSON response if wrapped in code blocks
-    const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsedData = JSON.parse(cleanedJson);
-    return parsedData;
-  } catch (error) {
-    console.error('Error al generar Análisis Profundo con Gemini:', error.message);
-    return fallbackAnalysis;
+  for (const curModel of candidateModels) {
+    try {
+      const model = genAI.getGenerativeModel({ model: curModel });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanedJson);
+    } catch (error) {
+      console.warn(`⚠️ Deep analysis model ${curModel} error:`, error.message);
+    }
   }
+
+  return fallbackAnalysis;
 }
 
 /**
@@ -265,39 +270,42 @@ async function getCoachRecommendations() {
   const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
 
   if (apiKey) {
-    try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: modelName });
+    const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-      const prompt = `
-        Analiza los siguientes datos financieros y genera exactamente 3 o 4 tarjetas de recomendación personalizadas de alta prioridad.
-        DATOS:
-        - Liquidez disponible: $${snapshot.metrics.disponible_hoy}
-        - Riqueza Neta: $${snapshot.metrics.riqueza_neta}
-        - Deudas: ${JSON.stringify(snapshot.debts)}
-        - Inversiones: ${JSON.stringify(snapshot.investments)}
-        - MSI: ${JSON.stringify(snapshot.msiPlans)}
-        - Meta: $${snapshot.financialGoal.target_amount} a los ${snapshot.financialGoal.target_age} años.
+    const prompt = `
+      Analiza los siguientes datos financieros y genera exactamente 3 o 4 tarjetas de recomendación personalizadas de alta prioridad.
+      DATOS:
+      - Liquidez disponible: $${snapshot.metrics.disponible_hoy}
+      - Riqueza Neta: $${snapshot.metrics.riqueza_neta}
+      - Deudas: ${JSON.stringify(snapshot.debts)}
+      - Inversiones: ${JSON.stringify(snapshot.investments)}
+      - MSI: ${JSON.stringify(snapshot.msiPlans)}
+      - Meta: $${snapshot.financialGoal.target_amount} a los ${snapshot.financialGoal.target_age} años.
 
-        Responde ÚNICAMENTE en JSON ESTRICTO con una lista de objetos:
-        [
-          {
-            "id": 1,
-            "priority": "high" | "medium" | "low",
-            "title": "Título corto y directo",
-            "category": "Deuda" | "Inversión" | "Liquidez" | "Ahorro" | "Meta",
-            "action": "Acción cuantitativa y concreta que debe tomar el usuario",
-            "impact": "Beneficio o impacto esperado"
-          }
-        ]
-      `;
+      Responde ÚNICAMENTE en JSON ESTRICTO con una lista de objetos:
+      [
+        {
+          "id": 1,
+          "priority": "high" | "medium" | "low",
+          "title": "Título corto y directo",
+          "category": "Deuda" | "Inversión" | "Liquidez" | "Ahorro" | "Meta",
+          "action": "Acción cuantitativa y concreta que debe tomar el usuario",
+          "impact": "Beneficio o impacto esperado"
+        }
+      ]
+    `;
 
-      const result = await model.generateContent(prompt);
-      const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-      const recs = JSON.parse(text);
-      if (Array.isArray(recs) && recs.length > 0) return recs;
-    } catch (e) {
-      console.warn('Fallback a recomendaciones estáticas por error en Gemini:', e.message);
+    for (const curModel of candidateModels) {
+      try {
+        const model = genAI.getGenerativeModel({ model: curModel });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        const recs = JSON.parse(text);
+        if (Array.isArray(recs) && recs.length > 0) return recs;
+      } catch (e) {
+        console.warn(`Fallback model ${curModel} recommendations error:`, e.message);
+      }
     }
   }
 
