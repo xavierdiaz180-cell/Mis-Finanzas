@@ -124,15 +124,14 @@ export default function AjustesView({ onRefresh }) {
                 Modelo de Gemini Seleccionado:
               </label>
               <select 
-                value={settings.gemini_model || 'gemini-3.6-flash'} 
+                value={settings.gemini_model || 'gemini-1.5-flash'} 
                 onChange={e => setSettings({ ...settings, gemini_model: e.target.value })}
                 style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}
               >
-                <option value="gemini-3.6-flash">Gemini 3.6 Flash (Recomendado - Ultra Rápido y Estable ✓)</option>
-                <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Recomendado - Rápido y Estable ✓)</option>
                 <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Alta Precisión)</option>
               </select>
-
             </div>
           </div>
 
@@ -160,13 +159,13 @@ export default function AjustesView({ onRefresh }) {
         <div className="glass-card" style={{ borderLeft: '4px solid #34d399' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
             <Database style={{ color: '#34d399' }} size={20} />
-            <h3 style={{ fontSize: '1.1rem' }}>Estado de la Base de Datos SQLite & Servidor Backend</h3>
+            <h3 style={{ fontSize: '1.1rem' }}>Estado de la Base de Datos PostgreSQL & Servidor Backend</h3>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
             <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Motor de BD:</span>
-              <div style={{ fontWeight: '600', color: '#34d399', fontSize: '1.05rem' }}>SQLite (`mis_finanzas.db`)</div>
+              <div style={{ fontWeight: '600', color: '#34d399', fontSize: '1.05rem' }}>PostgreSQL (Neon Cloud ☁️)</div>
             </div>
 
             <div style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>

@@ -9,9 +9,9 @@ async function getGeminiConfig() {
   const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
   
   const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
-  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-3.6-flash';
-  if (!modelName || modelName.includes('2.5') || modelName === 'gemini-2.0-flash') {
-    modelName = 'gemini-3.6-flash';
+  let modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+  if (!modelName || modelName.includes('3.6') || modelName.includes('3.5') || modelName.includes('omni') || modelName.includes('2.5')) {
+    modelName = 'gemini-1.5-flash';
   }
 
   return { apiKey, modelName };
@@ -73,7 +73,7 @@ async function parseVoiceDictation(text, categories, accounts) {
     return fallbackVoiceParser(text, categories, accounts);
   }
 
-  const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-omni-flash-preview']));
+  const candidateModels = Array.from(new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']));
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const prompt = `
@@ -175,7 +175,7 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     geminiError = reason;
     extractedData = fallbackDocumentScanner(docType, referenceName);
   } else {
-    const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-omni-flash-preview']));
+    const candidateModels = Array.from(new Set([modelName, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']));
     let lastError = null;
     const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -235,7 +235,10 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
     }
 
     if (!extractedData) {
-      if (lastError && (lastError.message.includes('429') || lastError.message.includes('Quota exceeded') || lastError.message.includes('limit: 0'))) {
+      const msg = lastError ? lastError.message : '';
+      if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('authentication') || msg.includes('API_KEY_INVALID') || msg.includes('ACCESS_TOKEN')) {
+        geminiError = 'La clave de Gemini no es válida o expiró. Ve a Ajustes → ingresa tu clave gratuita de Google AI Studio (debe empezar con AIzaSy...).';
+      } else if (msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('limit: 0')) {
         geminiError = 'La clave API ingresada no tiene cuota disponible (limit: 0). Genera una clave gratuita en Google AI Studio (aistudio.google.com/apikey).';
       } else {
         geminiError = lastError ? lastError.message : 'Error desconocido al escanear documento.';
