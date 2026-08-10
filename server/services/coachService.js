@@ -102,10 +102,206 @@ async function generateCoachChatResponse(userMessage, chatHistory = []) {
 }
 
 /**
+ * Generates an in-depth AI financial analysis using Gemini
+ */
+async function generateDeepAnalysis() {
+  const snapshot = await getFinancialSnapshot();
+  const { getFullAnalysisData } = require('./analysisService');
+  const fullAnalysis = await getFullAnalysisData();
+  const recentTransactions = await dbAll('SELECT date, type, amount, category, concept FROM transactions ORDER BY date DESC LIMIT 20');
+
+  const keyRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_api_key'");
+  const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
+  const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
+  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+
+  const contextData = {
+    metrica_disponible_hoy: snapshot.metrics.disponible_hoy,
+    riqueza_neta: snapshot.metrics.riqueza_neta,
+    salud_financiera: snapshot.metrics.salud_financiera,
+    presupuesto_diario: snapshot.metrics.presupuesto_diario,
+    cuentas: snapshot.accounts,
+    deudas: snapshot.debts,
+    inversiones: snapshot.investments,
+    meses_sin_intereses: snapshot.msiPlans,
+    meta_libertad: snapshot.financialGoal,
+    tendencias_mensuales: fullAnalysis.monthly_trends,
+    gastos_por_categoria: fullAnalysis.categories_breakdown,
+    capacidad_ahorro: fullAnalysis.savings_capacity,
+    proyeccion_30_dias: fullAnalysis.forecast_30_days,
+    ultimas_transacciones: recentTransactions
+  };
+
+  const fallbackAnalysis = {
+    diagnostico: {
+      resumen: `Tienes un disponible de $${snapshot.metrics.disponible_hoy.toLocaleString('es-MX')} y un patrimonio neto de $${snapshot.metrics.riqueza_neta.toLocaleString('es-MX')}. Tu calificación de salud es ${snapshot.metrics.salud_financiera.score}/100.`,
+      puntos_fuertes: [
+        snapshot.metrics.disponible_hoy > 0 ? 'Liquidez inmediata positiva en tus cuentas principales' : 'Registro activo de cuentas',
+        snapshot.debts.length === 0 ? 'Sin deudas registradas' : 'Seguimiento constante de compromisos'
+      ],
+      puntos_mejora: [
+        snapshot.debts.length > 0 ? 'Reducir el saldo deudor total para disminuir carga de intereses' : 'Incrementar aportaciones de inversión',
+        'Establecer un presupuesto mensual estricto por categorías'
+      ]
+    },
+    estrategia_deudas: {
+      titulo: snapshot.debts.length > 0 ? 'Método Avalancha (Priorizar alto interés)' : 'Mantener cero deudas',
+      recomendacion: snapshot.debts.length > 0
+        ? `Consolida o liquida primero las deudas con mayor tasa de interés. Actualmente tu mayor compromiso es ${snapshot.debts[0]?.name || 'tarjeta'}.`
+        : 'Excelente manejo de crédito. Continúa usando tarjetas solo para aprovechar beneficios o MSI sin saturar capacidad de pago.',
+      orden_pago: snapshot.debts.map(d => `${d.name} - Saldo: $${d.current_balance?.toLocaleString('es-MX')} (Tasa: ${d.interest_rate}%)`),
+      ahorro_estimado: snapshot.debts.length > 0 ? 'Hasta 25% en intereses abonando 15% extra al pago mínimo.' : 'N/A'
+    },
+    estrategia_inversion: {
+      titulo: 'Plan de Crecimiento del Patrimonio',
+      recomendacion: snapshot.metrics.disponible_hoy > 10000
+        ? 'Aprovecha el capital disponible manteniendo 1-2 meses de gastos en liquidez y el resto en instrumentos de bajo riesgo.'
+        : 'Construye primero tu fondo de emergencia de al menos $15,000 en débito/fondo líquido antes de buscar rendimientos a plazo.',
+      distribucion_sugerida: [
+        { instrumento: 'Fondo de Emergencia (Débito/CETES 28d)', porcentaje: 40 },
+        { instrumento: 'Renta Fija / Sofipos (Bajo riesgo)', porcentaje: 40 },
+        { instrumento: 'Renta Variable / ETFs (Mediano/Largo plazo)', porcentaje: 20 }
+      ]
+    },
+    plan_accion: {
+      dias_30: [
+        'Revisar suscripciones y gastos recurrentes prescindibles',
+        snapshot.debts.length > 0 ? 'Abonar $500 extras al capital de la deuda principal' : 'Destinar $1,000 a inversión fija'
+      ],
+      dias_60: [
+        'Evaluar la tasa de ahorro del mes y ajustar presupuesto diario',
+        'Consolidar el fondo de imprevistos'
+      ],
+      dias_90: [
+        'Revisar avance hacia la meta de Libertad Financiera',
+        'Automatizar transferencias de ahorro a inversión'
+      ]
+    },
+    libertad_financiera: {
+      analisis: `Tu meta es acumular $${snapshot.financialGoal.target_amount.toLocaleString('es-MX')} para los ${snapshot.financialGoal.target_age} años.`,
+      ritmo_actual: snapshot.metrics.riqueza_neta > 0 ? 'En marcha inicial' : 'Requiere impulsar el nivel de ahorro mensual',
+      ajuste_sugerido: 'Incrementar el ahorro mensual en un 10% adicional respecto a tus ingresos promedio.'
+    },
+    alertas: [
+      snapshot.debts.length > 0 ? { tipo: 'warning', mensaje: 'Tienes deudas activas. Evita contraer nuevos planes a MSI hasta liquidarlas.' } : { tipo: 'info', mensaje: 'Mantén bajo control tus tarjetas de crédito.' },
+      snapshot.metrics.disponible_hoy < 5000 ? { tipo: 'danger', mensaje: 'Tu liquidez disponible es reducida. Prioriza acumular reserva de emergencias.' } : { tipo: 'info', mensaje: 'Nivel de liquidez saludable.' }
+    ]
+  };
+
+  if (!apiKey) {
+    return fallbackAnalysis;
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    const prompt = `
+      Eres el Asesor y Estratega Financiero Principal de "Mis Finanzas".
+      Analiza detalladamente el estado financiero del usuario y proporciona un informe estratégico profundo en formato JSON ESTRICTO.
+
+      DATOS FINANCIEROS COMPLETOS DEL USUARIO:
+      ${JSON.stringify(contextData, null, 2)}
+
+      DEBES RESPONDER ÚNICAMENTE UN OBJETO JSON CON LA SIGUIENTE ESTRUCTURA EXACTA (sin markdown adicional fuera del JSON):
+
+      {
+        "diagnostico": {
+          "resumen": "Explicación clara y detallada de su situación actual en 2-3 oraciones",
+          "puntos_fuertes": ["Punto fuerte 1", "Punto fuerte 2"],
+          "puntos_mejora": ["Área de mejora 1", "Área de mejora 2"]
+        },
+        "estrategia_deudas": {
+          "titulo": "Nombre de la estrategia recomendada (ej: Método Avalancha o Bola de Nieve)",
+          "recomendacion": "Explicación paso a paso de qué hacer con sus deudas",
+          "orden_pago": ["Prioridad 1: Nombre deuda - Razón", "Prioridad 2: ..."],
+          "ahorro_estimado": "Estimación del ahorro en tiempo/intereses si sigue el plan"
+        },
+        "estrategia_inversion": {
+          "titulo": "Estrategia de Crecimiento y Conservación de Capital",
+          "recomendacion": "Recomendación específica según su liquidez y nivel de riesgo",
+          "distribucion_sugerida": [
+            { "instrumento": "Nombre instrumento (ej: CETES / Sofipo / ETF)", "porcentaje": 50 }
+          ]
+        },
+        "plan_accion": {
+          "dias_30": ["Acción inmediata 1", "Acción inmediata 2"],
+          "dias_60": ["Acción mediano plazo 1", "Acción mediano plazo 2"],
+          "dias_90": ["Acción consolidación 1", "Acción consolidación 2"]
+        },
+        "libertad_financiera": {
+          "analisis": "Evaluación realista de su meta de retiro a la edad configurada",
+          "ritmo_actual": "Evaluación del ritmo (Buena velocidad, Requiere aceleración, etc.)",
+          "ajuste_sugerido": "Sugerencia concreta de aportación mensual necesaria"
+        },
+        "alertas": [
+          { "tipo": "danger" | "warning" | "info", "mensaje": "Descripción de la alerta o riesgo detectado" }
+        ]
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const textResponse = result.response.text();
+    
+    // Clean JSON response if wrapped in code blocks
+    const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsedData = JSON.parse(cleanedJson);
+    return parsedData;
+  } catch (error) {
+    console.error('Error al generar Análisis Profundo con Gemini:', error.message);
+    return fallbackAnalysis;
+  }
+}
+
+/**
  * Returns structured prioritized action cards for the Coach screen
  */
 async function getCoachRecommendations() {
   const snapshot = await getFinancialSnapshot();
+
+  const keyRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_api_key'");
+  const modelRow = await dbGet("SELECT value FROM settings WHERE key = 'gemini_model'");
+  const apiKey = (keyRow && keyRow.value) ? keyRow.value : process.env.GEMINI_API_KEY;
+  const modelName = (modelRow && modelRow.value) ? modelRow.value : 'gemini-1.5-flash';
+
+  if (apiKey) {
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: modelName });
+
+      const prompt = `
+        Analiza los siguientes datos financieros y genera exactamente 3 o 4 tarjetas de recomendación personalizadas de alta prioridad.
+        DATOS:
+        - Liquidez disponible: $${snapshot.metrics.disponible_hoy}
+        - Riqueza Neta: $${snapshot.metrics.riqueza_neta}
+        - Deudas: ${JSON.stringify(snapshot.debts)}
+        - Inversiones: ${JSON.stringify(snapshot.investments)}
+        - MSI: ${JSON.stringify(snapshot.msiPlans)}
+        - Meta: $${snapshot.financialGoal.target_amount} a los ${snapshot.financialGoal.target_age} años.
+
+        Responde ÚNICAMENTE en JSON ESTRICTO con una lista de objetos:
+        [
+          {
+            "id": 1,
+            "priority": "high" | "medium" | "low",
+            "title": "Título corto y directo",
+            "category": "Deuda" | "Inversión" | "Liquidez" | "Ahorro" | "Meta",
+            "action": "Acción cuantitativa y concreta que debe tomar el usuario",
+            "impact": "Beneficio o impacto esperado"
+          }
+        ]
+      `;
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+      const recs = JSON.parse(text);
+      if (Array.isArray(recs) && recs.length > 0) return recs;
+    } catch (e) {
+      console.warn('Fallback a recomendaciones estáticas por error en Gemini:', e.message);
+    }
+  }
+
+  // Fallback rule-based recommendations if no API key or error
   const recs = [];
 
   // High priority: High interest debt
@@ -159,5 +355,7 @@ async function getCoachRecommendations() {
 module.exports = {
   getFinancialSnapshot,
   generateCoachChatResponse,
-  getCoachRecommendations
+  getCoachRecommendations,
+  generateDeepAnalysis
 };
+

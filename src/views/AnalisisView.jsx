@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, PieChart, DollarSign, Plus, Trash2, Shield, AlertCircle } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, PieChart, DollarSign, Plus, Trash2, Shield, AlertCircle, Sparkles, Target, Zap, ShieldAlert, CheckCircle2, RefreshCw } from 'lucide-react';
 import { API_BASE } from '../config';
 
 export default function AnalisisView({ onRefresh }) {
   const [analysisData, setAnalysisData] = useState(null);
   const [recurringExpenses, setRecurringExpenses] = useState([]);
   const [accounts, setAccounts] = useState([]);
+
+  // AI Deep Analysis
+  const [deepAnalysis, setDeepAnalysis] = useState(null);
+  const [loadingAi, setLoadingAi] = useState(false);
 
   // Form Recurring Expense
   const [showAddRecurringModal, setShowAddRecurringModal] = useState(false);
@@ -15,6 +19,7 @@ export default function AnalisisView({ onRefresh }) {
   const [amount, setAmount] = useState('');
   const [variableAmount, setVariableAmount] = useState(false);
   const [accountId, setAccountId] = useState('');
+
 
   const loadData = () => {
     fetch(`${API_BASE}/api/analysis`)
@@ -64,13 +69,27 @@ export default function AnalisisView({ onRefresh }) {
       })
       .catch(err => alert('Error al agregar gasto recurrente: ' + err.message));
   };
-
   const handleDeleteRecurring = (id) => {
     fetch(`/api/recurring/${id}`, { method: 'DELETE' })
       .then(res => res.json())
       .then(() => {
         loadData();
         if (onRefresh) onRefresh();
+      });
+  };
+
+  const handleGenerateDeepAnalysis = () => {
+    setLoadingAi(true);
+    fetch(`${API_BASE}/api/analysis/deep`, { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        setDeepAnalysis(data);
+        setLoadingAi(false);
+      })
+      .catch(err => {
+        console.error('Error al generar análisis IA:', err);
+        setLoadingAi(false);
+        alert('Ocurrió un error al generar el análisis estratégico con IA.');
       });
   };
 
@@ -91,14 +110,228 @@ export default function AnalisisView({ onRefresh }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
       {/* Header */}
-      <div>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <BarChart3 size={24} /> Análisis Financiero y Proyecciones
-        </h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-          Visualiza tendencias de ingresos vs gastos, distribución por categoría, evolución patrimonial y predicción a 30 días.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <BarChart3 size={24} /> Análisis Financiero y Proyecciones
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+            Visualiza tendencias de ingresos vs gastos, distribución por categoría, evolución patrimonial y análisis estratégico IA.
+          </p>
+        </div>
+
+        <button
+          onClick={handleGenerateDeepAnalysis}
+          disabled={loadingAi}
+          className="nav-tab-btn active"
+          style={{
+            background: 'linear-gradient(135deg, #a78bfa 0%, #3b82f6 100%)',
+            border: 'none',
+            color: 'white',
+            padding: '0.75rem 1.25rem',
+            fontWeight: '600',
+            fontSize: '0.9rem',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: '0 4px 15px rgba(167, 139, 250, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            cursor: loadingAi ? 'wait' : 'pointer',
+            opacity: loadingAi ? 0.7 : 1
+          }}
+        >
+          {loadingAi ? <RefreshCw size={18} className="spin" /> : <Sparkles size={18} />}
+          {loadingAi ? 'Generando Estrategia IA...' : ' Generar Análisis Estratégico IA'}
+        </button>
       </div>
+
+      {/* AI Deep Analysis Result Section */}
+      {deepAnalysis && (
+        <div className="glass-card" style={{ border: '1px solid rgba(167, 139, 250, 0.4)', background: 'linear-gradient(180deg, rgba(167, 139, 250, 0.05) 0%, rgba(15, 23, 42, 0.8) 100%)' }}>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.75rem' }}>
+            <Sparkles size={22} style={{ color: '#a78bfa' }} />
+            <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
+              Informe Estratégico Personalizado (IA Gemini)
+            </h3>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            
+            {/* 1. Diagnóstico */}
+            {deepAnalysis.diagnostico && (
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <h4 style={{ color: '#60a5fa', fontSize: '1rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  🩺 Diagnóstico Financiero
+                </h4>
+                <p style={{ fontSize: '0.9rem', color: '#e2e8f0', lineHeight: '1.5', marginBottom: '0.75rem' }}>
+                  {deepAnalysis.diagnostico.resumen}
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                  {deepAnalysis.diagnostico.puntos_fuertes?.length > 0 && (
+                    <div style={{ background: 'rgba(52, 211, 153, 0.08)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(52, 211, 153, 0.2)' }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#34d399', marginBottom: '0.35rem' }}>✅ Puntos Fuertes:</div>
+                      <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.83rem', color: '#cbd5e1' }}>
+                        {deepAnalysis.diagnostico.puntos_fuertes.map((pf, idx) => <li key={idx}>{pf}</li>)}
+                      </ul>
+                    </div>
+                  )}
+
+                  {deepAnalysis.diagnostico.puntos_mejora?.length > 0 && (
+                    <div style={{ background: 'rgba(245, 158, 11, 0.08)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: '700', color: '#f59e0b', marginBottom: '0.35rem' }}>🎯 Oportunidades de Mejora:</div>
+                      <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.83rem', color: '#cbd5e1' }}>
+                        {deepAnalysis.diagnostico.puntos_mejora.map((pm, idx) => <li key={idx}>{pm}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Grid 2 Columnas: Deudas e Inversión */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+              
+              {/* Estrategia Deudas */}
+              {deepAnalysis.estrategia_deudas && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <h4 style={{ color: '#f43f5e', fontSize: '0.98rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🔥 Estrategia de Deudas: {deepAnalysis.estrategia_deudas.titulo}
+                  </h4>
+                  <p style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '0.75rem' }}>
+                    {deepAnalysis.estrategia_deudas.recomendacion}
+                  </p>
+
+                  {deepAnalysis.estrategia_deudas.orden_pago?.length > 0 && (
+                    <div style={{ fontSize: '0.82rem', marginBottom: '0.5rem' }}>
+                      <strong style={{ color: 'var(--text-muted)' }}>Orden sugerido de liquidación:</strong>
+                      <ol style={{ margin: '0.25rem 0 0 0', paddingLeft: '1.2rem', color: '#f8fafc' }}>
+                        {deepAnalysis.estrategia_deudas.orden_pago.map((op, idx) => <li key={idx}>{op}</li>)}
+                      </ol>
+                    </div>
+                  )}
+
+                  {deepAnalysis.estrategia_deudas.ahorro_estimado && (
+                    <div style={{ fontSize: '0.8rem', color: '#34d399', fontWeight: '600', marginTop: '0.5rem' }}>
+                      💡 Ahorro Estimado: {deepAnalysis.estrategia_deudas.ahorro_estimado}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Estrategia Inversión */}
+              {deepAnalysis.estrategia_inversion && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <h4 style={{ color: '#34d399', fontSize: '0.98rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    💹 {deepAnalysis.estrategia_inversion.titulo || 'Estrategia de Inversión'}
+                  </h4>
+                  <p style={{ fontSize: '0.85rem', color: '#cbd5e1', marginBottom: '0.75rem' }}>
+                    {deepAnalysis.estrategia_inversion.recomendacion}
+                  </p>
+
+                  {deepAnalysis.estrategia_inversion.distribucion_sugerida?.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: '600' }}>DISTRIBUCIÓN RECOMENDADA DE CAPITAL:</span>
+                      {deepAnalysis.estrategia_inversion.distribucion_sugerida.map((dist, idx) => (
+                        <div key={idx}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.2rem' }}>
+                            <span>{dist.instrumento}</span>
+                            <span style={{ fontWeight: '700', color: '#34d399' }}>{dist.porcentaje}%</span>
+                          </div>
+                          <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${dist.porcentaje}%`, height: '100%', background: '#34d399' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Plan de Acción 30-60-90 días */}
+            {deepAnalysis.plan_accion && (
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <h4 style={{ color: '#a78bfa', fontSize: '0.98rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  📆 Plan de Acción por Fases (30 - 60 - 90 Días)
+                </h4>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.85rem' }}>
+                  
+                  <div style={{ background: 'rgba(167, 139, 250, 0.08)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid #a78bfa' }}>
+                    <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#a78bfa', marginBottom: '0.35rem' }}>PRÓXIMOS 30 DÍAS</div>
+                    <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: '#e2e8f0' }}>
+                      {deepAnalysis.plan_accion.dias_30?.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  </div>
+
+                  <div style={{ background: 'rgba(96, 165, 250, 0.08)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid #60a5fa' }}>
+                    <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#60a5fa', marginBottom: '0.35rem' }}>A 60 DÍAS</div>
+                    <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: '#e2e8f0' }}>
+                      {deepAnalysis.plan_accion.dias_60?.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  </div>
+
+                  <div style={{ background: 'rgba(52, 211, 153, 0.08)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid #34d399' }}>
+                    <div style={{ fontWeight: '700', fontSize: '0.82rem', color: '#34d399', marginBottom: '0.35rem' }}>A 90 DÍAS</div>
+                    <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.82rem', color: '#e2e8f0' }}>
+                      {deepAnalysis.plan_accion.dias_90?.map((item, idx) => <li key={idx}>{item}</li>)}
+                    </ul>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+            {/* Libertad Financiera & Alertas */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+              
+              {deepAnalysis.libertad_financiera && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <h4 style={{ color: '#fbbf24', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🎯 Ruta hacia Libertad Financiera
+                  </h4>
+                  <p style={{ fontSize: '0.83rem', color: '#cbd5e1', marginBottom: '0.5rem' }}>
+                    {deepAnalysis.libertad_financiera.analisis}
+                  </p>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    <strong>Ritmo:</strong> {deepAnalysis.libertad_financiera.ritmo_actual}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#34d399', marginTop: '0.25rem' }}>
+                    <strong>Ajuste mensual sugerido:</strong> {deepAnalysis.libertad_financiera.ajuste_sugerido}
+                  </div>
+                </div>
+              )}
+
+              {deepAnalysis.alertas?.length > 0 && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                  <h4 style={{ color: '#f8fafc', fontSize: '0.95rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    ⚠️ Alertas y Advertencias Detectadas
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {deepAnalysis.alertas.map((alt, idx) => (
+                      <div key={idx} style={{
+                        fontSize: '0.82rem',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: alt.tipo === 'danger' ? 'rgba(244, 63, 94, 0.15)' : alt.tipo === 'warning' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                        color: alt.tipo === 'danger' ? '#f43f5e' : alt.tipo === 'warning' ? '#f59e0b' : '#60a5fa',
+                        border: `1px solid ${alt.tipo === 'danger' ? 'rgba(244, 63, 94, 0.3)' : alt.tipo === 'warning' ? 'rgba(245, 158, 11, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+                      }}>
+                        {alt.mensaje}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* MoM Indicators & Savings Capacity Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>

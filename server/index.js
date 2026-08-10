@@ -6,7 +6,7 @@ const { initDatabase, dbAll, dbGet, dbRun } = require('./database');
 const { calculateFinancialMetrics, processTransaction, deleteTransaction } = require('./services/financialRules');
 
 const { parseVoiceDictation, analyzeDocument } = require('./services/geminiService');
-const { generateCoachChatResponse, getCoachRecommendations } = require('./services/coachService');
+const { generateCoachChatResponse, getCoachRecommendations, generateDeepAnalysis } = require('./services/coachService');
 const { getFullAnalysisData } = require('./services/analysisService');
 
 dotenv.config();
@@ -836,6 +836,17 @@ app.get('/api/analysis', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// 1b. Deep AI Analysis Endpoint (Powered by Gemini)
+app.post('/api/analysis/deep', async (req, res) => {
+  try {
+    const deepAnalysis = await generateDeepAnalysis();
+    res.json(deepAnalysis);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // 2. Recurring Expenses CRUD (Gastos Recurrentes)
 app.get('/api/recurring', async (req, res) => {
