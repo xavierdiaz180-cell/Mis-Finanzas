@@ -49,6 +49,7 @@ function fallbackVoiceParser(text, categories, accounts) {
   if (!concept) missingFields.push('concepto');
   if (!category) missingFields.push('categoría');
 
+  const todayStr = new Date().toLocaleDateString('sv-SE');
   return {
     type: lower.includes('ingreso') || lower.includes('nómina') ? 'income' : 'expense',
     amount: amount || 0,
@@ -56,7 +57,7 @@ function fallbackVoiceParser(text, categories, accounts) {
     category: category,
     account_id: matchedAccount ? matchedAccount.id : null,
     account_name: matchedAccount ? matchedAccount.name : '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayStr,
     missing_fields: missingFields,
     source: 'voice_parsed'
   };
@@ -75,10 +76,14 @@ async function parseVoiceDictation(text, categories, accounts) {
 
   const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
   const genAI = new GoogleGenerativeAI(apiKey);
+  const todayStr = new Date().toLocaleDateString('sv-SE');
 
   const prompt = `
     Eres el intérprete financiero de la aplicación "Mis Finanzas".
     Analiza la siguiente frase dictada por el usuario: "${text}".
+
+    FECHA DE HOY: "${todayStr}".
+    Si la frase del usuario no especifica una fecha explícita (como "ayer" o "el 15 de marzo"), asigna SIEMPRE "date": "${todayStr}".
 
     Catálogo de Cuentas del usuario:
     ${JSON.stringify(accounts.map(a => ({ id: a.id, name: a.name, type: a.type })))}
@@ -95,7 +100,7 @@ async function parseVoiceDictation(text, categories, accounts) {
       "account_id": id_de_la_cuenta_coincidente o null si falta,
       "account_name": "nombre de la cuenta coincidente o vacía",
       "date": "YYYY-MM-DD",
-      "missing_fields": ["monto", "cuenta", "concepto", "categoría"] // array con los nombres de campos esenciales que faltan o están en 0/null
+      "missing_fields": ["monto", "cuenta", "concepto", "categoría"]
     }
   `;
 

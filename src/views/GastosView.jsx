@@ -162,14 +162,18 @@ export default function GastosView({ onRefresh }) {
     if (!pendingExpense) return;
     if (!validatePendingExpense(pendingExpense)) return;
 
+    const todayLocal = new Date().toLocaleDateString('sv-SE');
+    const finalExpense = {
+      ...pendingExpense,
+      date: pendingExpense.date || todayLocal,
+      type: 'expense',
+      source: 'voice'
+    };
+
     fetch(`${API_BASE}/api/transactions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...pendingExpense,
-        type: 'expense',
-        source: 'voice'
-      })
+      body: JSON.stringify(finalExpense)
     })
       .then(res => res.json())
       .then(() => {
