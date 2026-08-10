@@ -7,8 +7,16 @@ const { dbAll, dbGet, dbRun } = require('../database');
  * 3. Salud Financiera (0-100) with explanation of factors.
  * 4. Presupuesto Diario Acumulable (Resets on 1st of month, unspent rolls over).
  */
+function getLocalDateString(dateObj = new Date()) {
+  const d = new Date(dateObj);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 async function calculateFinancialMetrics() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const currentMonth = today.substring(0, 7); // YYYY-MM
   const dayOfMonth = parseInt(today.split('-')[2], 10);
 
@@ -17,23 +25,23 @@ async function calculateFinancialMetrics() {
     SELECT SUM(balance) as total FROM accounts 
     WHERE active = 1 AND type IN ('bank', 'payroll', 'cash')
   `);
-  const disponibleHoy = liquidAccounts[0]?.total || 0;
+  const disponibleHoy = parseFloat(liquidAccounts[0]?.total || 0);
 
   // 2. Documented Investments Value
   const investmentRow = await dbAll('SELECT SUM(current_documented_value) as total FROM investments');
-  const totalInversiones = investmentRow[0]?.total || 0;
+  const totalInversiones = parseFloat(investmentRow[0]?.total || 0);
 
   // 3. Total Debt
   // Debts from debts table
   const debtRow = await dbAll('SELECT SUM(current_balance) as total FROM debts');
-  const totalDebtsTable = debtRow[0]?.total || 0;
+  const totalDebtsTable = parseFloat(debtRow[0]?.total || 0);
 
   // Credit card used balances from accounts table
   const ccAccounts = await dbAll(`
     SELECT SUM(credit_limit - available_credit) as total FROM accounts
     WHERE active = 1 AND type = 'credit_card' AND credit_limit > available_credit
   `);
-  const totalCCDebt = ccAccounts[0]?.total || 0;
+  const totalCCDebt = parseFloat(ccAccounts[0]?.total || 0);
 
   const totalDeuda = totalDebtsTable + totalCCDebt;
 
@@ -44,15 +52,15 @@ async function calculateFinancialMetrics() {
   // 5. Month Income & Expenses
   const monthIncomeRow = await dbAll(`
     SELECT SUM(amount) as total FROM transactions
-    WHERE type = 'income' AND date LIKE ?
-  `, [`${currentMonth}%`]);
-  const ingresosMes = monthIncomeRow[0]?.total || 0;
+    WHERE type = 'income' AND (date LIKE ? OR date = ?)
+  `, [`${currentMonth}%`, currentMonth]);
+  const ingresosMes = parseFloat(monthIncomeRow[0]?.total || 0);
 
   const monthExpenseRow = await dbAll(`
     SELECT SUM(amount) as total FROM transactions
-    WHERE type = 'expense' AND date LIKE ?
-  `, [`${currentMonth}%`]);
-  const gastosMes = monthExpenseRow[0]?.total || 0;
+    WHERE type = 'expense' AND (date LIKE ? OR date = ?)
+  `, [`${currentMonth}%`, currentMonth]);
+  const gastosMes = parseFloat(monthExpenseRow[0]?.total || 0);
 
   // 6. Financial Health Score Calculation (0-100)
   let score = 75; // base score
@@ -123,15 +131,15 @@ async function calculateFinancialMetrics() {
   // Calculate today's spent amount
   const todaySpentRow = await dbAll(`
     SELECT SUM(amount) as total FROM transactions
-    WHERE type = 'expense' AND date = ?
-  `, [today]);
-  const gastadoHoy = todaySpentRow[0]?.total || 0;
+    WHERE type = 'expense' AND (date = ? OR date LIKE ?)
+  `, [today, `${today}%`]);
+  const gastadoHoy = parseFloat(todaySpentRow[0]?.total || 0);
 
   // Calculate accumulated budget for month
   const totalDaysPassedInMonth = dayOfMonth;
   const totalBudgetSoFar = (baseDailyLimit * totalDaysPassedInMonth) + (budgetRecord.rollover_amount || 0);
   const totalSpentSoFar = gastosMes;
-  const disponibleHoyPresupuesto = Math.max(0, baseDailyLimit - gastadoHoy);
+  const disponibleHoyPresupuesto = baseDailyLimit - gastadoHoy;
   const disponibleAcumuladoMes = Math.max(0, totalBudgetSoFar - totalSpentSoFar);
 
   return {
@@ -166,7 +174,7 @@ async function processTransaction({ date, type, amount, category, concept, accou
   if (!category) throw new Error('La categoría es requerida.');
   if (!concept) throw new Error('El concepto es requerido.');
 
-  const txDate = date || new Date().toISOString().split('T')[0];
+  const txDate = date || getLocalDateString();
 
   // Insert transaction
   const result = await dbRun(

@@ -22,6 +22,57 @@ export default function GastosView({ onRefresh }) {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [pendingExpense, setPendingExpense] = useState(null);
   const [validationError, setValidationError] = useState('');
+  const [isListening, setIsListening] = useState(false);
+
+  const toggleMicListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Tu navegador celular o versión actual no soporta reconocimiento de voz nativo por el micrófono. Puedes escribir directamente en el cuadro de texto.');
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'es-MX';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0])
+          .map(result => result.transcript)
+          .join('');
+        setDictationText(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Error de micrófono:', event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          alert('Permiso de micrófono no concedido. Ve a los Ajustes de tu navegador o celular y concede permiso de micrófono a esta página web.');
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error('Error iniciando reconocimiento de voz:', err);
+      setIsListening(false);
+    }
+  };
 
   const loadData = () => {
     const params = new URLSearchParams({ type: 'expense' });
@@ -49,7 +100,6 @@ export default function GastosView({ onRefresh }) {
       })
       .catch(err => alert('Error al eliminar gasto: ' + err.message));
   };
-
 
   useEffect(() => {
     fetch(`${API_BASE}/api/categories`)
@@ -144,21 +194,42 @@ export default function GastosView({ onRefresh }) {
           Dicta tu gasto libremente, por ejemplo: <em>"Gasté 350 pesos en gasolina con BBVA Nómina"</em>.
         </p>
 
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={toggleMicListening}
+            className={`nav-tab-btn ${isListening ? 'active' : ''}`}
+            style={{
+              padding: '0.75rem 1.25rem',
+              background: isListening ? '#ef4444' : 'rgba(239, 68, 68, 0.2)',
+              border: '1px solid #ef4444',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: '600',
+              boxShadow: isListening ? '0 0 15px rgba(239, 68, 68, 0.6)' : 'none',
+              animation: isListening ? 'pulse 1.5s infinite' : 'none'
+            }}
+          >
+            <Mic size={18} style={{ color: isListening ? 'white' : '#f87171' }} />
+            {isListening ? '🔴 Escuchando... (Habla ahora)' : '🎤 Dictar por Micrófono'}
+          </button>
+
           <input 
             type="text" 
             value={dictationText}
             onChange={e => setDictationText(e.target.value)}
             placeholder='Ej: "Gasté 350 pesos en gasolina con BBVA Nómina"'
-            style={{ flex: 1, minWidth: '280px', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', color: 'white' }}
+            style={{ flex: 1, minWidth: '240px', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', color: 'white' }}
           />
+
           <button 
             onClick={handleSimulateVoice}
             className="nav-tab-btn active"
-            disabled={isProcessingVoice}
+            disabled={isProcessingVoice || !dictationText.trim()}
             style={{ padding: '0.75rem 1.25rem' }}
           >
-            <Mic size={16} /> {isProcessingVoice ? 'Procesando con IA...' : 'Interpretar Dictado (Gemini IA)'}
+            <Sparkles size={16} /> {isProcessingVoice ? 'Procesando con IA...' : 'Procesar con Gemini IA'}
           </button>
 
           <button 
@@ -166,7 +237,7 @@ export default function GastosView({ onRefresh }) {
             className="nav-tab-btn"
             style={{ background: 'rgba(139, 92, 246, 0.2)', border: '1px solid rgba(139, 92, 246, 0.4)', color: '#a78bfa', padding: '0.75rem 1.25rem' }}
           >
-            <Sparkles size={16} /> Escanear Recibo / Ticket (Gemini)
+            <FileText size={16} /> Escanear Recibo / Ticket (Gemini)
           </button>
         </div>
 
