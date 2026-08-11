@@ -19,6 +19,16 @@ async function getGeminiConfig() {
 
 
 
+function getLocalDateString(dateObj = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(dateObj);
+}
+
 /**
  * Fallback parser for voice dictation when offline or no API key provided
  */
@@ -49,7 +59,7 @@ function fallbackVoiceParser(text, categories, accounts) {
   if (!concept) missingFields.push('concepto');
   if (!category) missingFields.push('categoría');
 
-  const todayStr = new Date().toLocaleDateString('sv-SE');
+  const todayStr = getLocalDateString();
   return {
     type: lower.includes('ingreso') || lower.includes('nómina') ? 'income' : 'expense',
     amount: amount || 0,
@@ -76,7 +86,7 @@ async function parseVoiceDictation(text, categories, accounts) {
 
   const candidateModels = Array.from(new Set([modelName, 'gemini-3.6-flash', 'gemini-3.5-flash-lite']));
   const genAI = new GoogleGenerativeAI(apiKey);
-  const todayStr = new Date().toLocaleDateString('sv-SE');
+  const todayStr = getLocalDateString();
 
   const prompt = `
     Eres el intérprete financiero de la aplicación "Mis Finanzas".

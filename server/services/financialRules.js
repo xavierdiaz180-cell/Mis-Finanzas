@@ -8,11 +8,13 @@ const { dbAll, dbGet, dbRun } = require('../database');
  * 4. Presupuesto Diario Acumulable (Resets on 1st of month, unspent rolls over).
  */
 function getLocalDateString(dateObj = new Date()) {
-  const d = new Date(dateObj);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(dateObj);
 }
 
 async function calculateFinancialMetrics() {
