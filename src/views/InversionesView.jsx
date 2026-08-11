@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { PiggyBank, Plus, ArrowUpRight, ArrowDownRight, ShieldAlert, ShieldCheck, Shield, RefreshCw, X, Landmark } from 'lucide-react';
 import { API_BASE } from '../config';
+import { formatMoney } from '../utils/formatters';
 
-export default function InversionesView({ onRefresh }) {
+export default function InversionesView({ onRefresh, hideValues = false }) {
   const [investments, setInvestments] = useState([]);
   const [accounts, setAccounts] = useState([]);
 
@@ -177,21 +178,21 @@ export default function InversionesView({ onRefresh }) {
         <div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>VALOR TOTAL PORTAFOLIO</span>
           <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#34d399' }}>
-            ${totalPortfolioValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            {formatMoney(totalPortfolioValue, hideValues)}
           </div>
         </div>
 
         <div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>MONTO CAPITAL INVERTIDO</span>
           <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#f8fafc' }}>
-            ${totalInvested.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            {formatMoney(totalInvested, hideValues)}
           </div>
         </div>
 
         <div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>GANANCIA / PÉRDIDA TOTAL</span>
           <div style={{ fontSize: '1.8rem', fontWeight: '700', color: totalGainLoss >= 0 ? '#34d399' : '#f43f5e' }}>
-            {totalGainLoss >= 0 ? '+' : ''}${totalGainLoss.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            {formatMoney(totalGainLoss, hideValues)}
           </div>
         </div>
       </div>
@@ -215,14 +216,14 @@ export default function InversionesView({ onRefresh }) {
                 <div style={{ margin: '0.75rem 0' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Valor Documentado Actual:</span>
                   <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#34d399' }}>
-                    ${inv.current_documented_value.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    {formatMoney(inv.current_documented_value, hideValues)}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span>Invertido: ${inv.invested_amount.toLocaleString('es-MX')}</span>
+                  <span>Invertido: {formatMoney(inv.invested_amount, hideValues)}</span>
                   <span style={{ color: inv.profit_loss >= 0 ? '#34d399' : '#f43f5e', fontWeight: '600' }}>
-                    {inv.profit_loss >= 0 ? '+' : ''}${inv.profit_loss.toLocaleString('es-MX')} ({inv.profit_loss_percentage.toFixed(1)}%)
+                    {formatMoney(inv.profit_loss, hideValues)} ({inv.profit_loss_percentage.toFixed(1)}%)
                   </span>
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>

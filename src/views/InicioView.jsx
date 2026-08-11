@@ -1,7 +1,8 @@
 import React from 'react';
 import { ShieldCheck, Wallet, ArrowUpRight, ArrowDownRight, Sparkles, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
+import { formatMoney } from '../utils/formatters';
 
-export default function InicioView({ summary, onNavigate }) {
+export default function InicioView({ summary, onNavigate, hideValues = false }) {
   if (!summary) return <div style={{ color: 'var(--text-muted)' }}>Cargando métricas...</div>;
 
   const {
@@ -32,7 +33,7 @@ export default function InicioView({ summary, onNavigate }) {
             <span className="badge badge-info">Cuentas + Nómina + Efectivo</span>
           </div>
           <div style={{ fontSize: '2.2rem', fontWeight: '700', color: '#f8fafc', margin: '0.4rem 0' }}>
-            ${disponible_hoy.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {formatMoney(disponible_hoy, hideValues)}
           </div>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             * Excluye inversiones según la regla de liquidez.
@@ -48,10 +49,10 @@ export default function InicioView({ summary, onNavigate }) {
             <span className="badge badge-success">Patrimonio Real</span>
           </div>
           <div style={{ fontSize: '2.2rem', fontWeight: '700', color: isNetWorthNegative ? 'var(--text-muted)' : '#34d399', margin: '0.4rem 0' }}>
-            {isNetWorthNegative ? '0 / Nula' : `$${riqueza_neta.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}
+            {isNetWorthNegative ? (hideValues ? '••••••' : '0 / Nula') : formatMoney(riqueza_neta, hideValues)}
           </div>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            Disponible hoy (${disponible_hoy.toLocaleString()}) + Inversiones (${total_inversiones.toLocaleString()}) - Deuda (${total_deuda.toLocaleString()})
+            Disponible hoy ({formatMoney(disponible_hoy, hideValues)}) + Inversiones ({formatMoney(total_inversiones, hideValues)}) - Deuda ({formatMoney(total_deuda, hideValues)})
           </p>
         </div>
 
@@ -92,19 +93,19 @@ export default function InicioView({ summary, onNavigate }) {
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Límite Diario</span>
               <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#f8fafc' }}>
-                ${presupuesto_diario.limite_diario || 200}
+                {formatMoney(presupuesto_diario.limite_diario || 200, hideValues)}
               </div>
             </div>
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Gastado Hoy</span>
               <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#f43f5e' }}>
-                ${presupuesto_diario.gastado_hoy || 0}
+                {formatMoney(presupuesto_diario.gastado_hoy || 0, hideValues)}
               </div>
             </div>
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Disponible Hoy</span>
               <div style={{ fontSize: '1.2rem', fontWeight: '600', color: (presupuesto_diario.disponible_hoy < 0) ? '#f43f5e' : '#34d399' }}>
-                ${(presupuesto_diario.disponible_hoy || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                {formatMoney(presupuesto_diario.disponible_hoy || 0, hideValues)}
               </div>
             </div>
           </div>
@@ -112,12 +113,12 @@ export default function InicioView({ summary, onNavigate }) {
           <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Resumen acumulado del mes:</span>
             <span style={{ fontSize: '1.1rem', fontWeight: '700', color: '#60a5fa' }}>
-              ${(presupuesto_diario.acumulado_mes || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+              {formatMoney(presupuesto_diario.acumulado_mes || 0, hideValues)}
             </span>
           </div>
 
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center' }}>
-            * El disponible diario renueva a +${presupuesto_diario.limite_diario || 200} pesos al iniciar el día de mañana.
+            * El disponible diario renueva a +{formatMoney(presupuesto_diario.limite_diario || 200, hideValues)} pesos al iniciar el día de mañana.
           </p>
         </div>
 

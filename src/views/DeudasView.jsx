@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { CreditCard, Plus, DollarSign, Calendar, Percent, AlertTriangle, CheckCircle2, X, Sparkles, Trash2 } from 'lucide-react';
-
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
+import { formatMoney } from '../utils/formatters';
 
-export default function DeudasView({ onRefresh }) {
+export default function DeudasView({ onRefresh, hideValues = false }) {
   const [debts, setDebts] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [showDocScanner, setShowDocScanner] = useState(false);
@@ -215,14 +215,14 @@ export default function DeudasView({ onRefresh }) {
         <div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>DEUDA TOTAL ACUMULADA</span>
           <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#f43f5e' }}>
-            ${totalDebtBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            {formatMoney(totalDebtBalance, hideValues)}
           </div>
         </div>
 
         <div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>COMPROMISO DE PAGO MENSUAL</span>
           <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#fbbf24' }}>
-            ${totalMonthlyCommitment.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            {formatMoney(totalMonthlyCommitment, hideValues)}
           </div>
         </div>
       </div>
@@ -263,14 +263,14 @@ export default function DeudasView({ onRefresh }) {
                 <div style={{ margin: '0.75rem 0' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Saldo Pendiente:</span>
                   <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#f43f5e' }}>
-                    ${debt.current_balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    {formatMoney(debt.current_balance, hideValues)}
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: 'rgba(255,255,255,0.03)', padding: '0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   <div>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Pago Mensual:</span>
-                    <div style={{ fontWeight: '600', color: '#fbbf24' }}>${debt.payment_amount.toLocaleString('es-MX')}</div>
+                    <div style={{ fontWeight: '600', color: '#fbbf24' }}>{formatMoney(debt.payment_amount, hideValues)}</div>
                   </div>
                   <div>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Fecha Límite:</span>
@@ -288,7 +288,7 @@ export default function DeudasView({ onRefresh }) {
                       <div key={msi.id} style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{msi.concept} ({msi.installments_paid}/{msi.installments_total} meses)</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontWeight: '600', color: '#a78bfa' }}>${msi.monthly_amount}/mes</span>
+                          <span style={{ fontWeight: '600', color: '#a78bfa' }}>{formatMoney(msi.monthly_amount, hideValues)}/mes</span>
                           <button 
                             onClick={() => handleDeleteMSIPlan(msi.id, msi.concept)}
                             title="Eliminar este plan MSI"

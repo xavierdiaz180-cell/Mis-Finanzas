@@ -17,6 +17,17 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('inicio');
   const [apiStatus, setApiStatus] = useState('loading');
   const [summaryData, setSummaryData] = useState(null);
+  const [hideValues, setHideValues] = useState(() => {
+    return localStorage.getItem('mis_finanzas_privacy') === 'true';
+  });
+
+  const toggleHideValues = () => {
+    setHideValues(prev => {
+      const next = !prev;
+      localStorage.setItem('mis_finanzas_privacy', String(next));
+      return next;
+    });
+  };
 
   const fetchSummary = () => {
     fetch(`${API_BASE}/api/summary`)
@@ -42,7 +53,13 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} apiStatus={apiStatus} />
+      <Navigation 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        apiStatus={apiStatus} 
+        hideValues={hideValues}
+        onToggleHideValues={toggleHideValues}
+      />
 
       {/* Phase Status Banner */}
       <div className="phase-banner">
@@ -68,35 +85,35 @@ export default function App() {
       {/* Main View Container */}
       <main>
         {activeTab === 'inicio' && (
-          <InicioView summary={summaryData} onNavigate={setActiveTab} />
+          <InicioView summary={summaryData} onNavigate={setActiveTab} hideValues={hideValues} />
         )}
 
         {activeTab === 'cartera' && (
-          <CarteraView onRefresh={fetchSummary} />
+          <CarteraView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'gastos' && (
-          <GastosView onRefresh={fetchSummary} />
+          <GastosView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'ingresos' && (
-          <IngresosView onRefresh={fetchSummary} />
+          <IngresosView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'inversiones' && (
-          <InversionesView onRefresh={fetchSummary} />
+          <InversionesView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'deudas' && (
-          <DeudasView onRefresh={fetchSummary} />
+          <DeudasView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'coach' && (
-          <CoachView onRefresh={fetchSummary} />
+          <CoachView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'analisis' && (
-          <AnalisisView onRefresh={fetchSummary} />
+          <AnalisisView onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'ajustes' && (

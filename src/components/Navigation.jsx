@@ -9,7 +9,9 @@ import {
   Bot, 
   BarChart3, 
   Settings,
-  Database
+  Database,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 export const TABS = [
@@ -24,7 +26,7 @@ export const TABS = [
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
 ];
 
-export default function Navigation({ activeTab, setActiveTab, apiStatus }) {
+export default function Navigation({ activeTab, setActiveTab, apiStatus, hideValues, onToggleHideValues }) {
   return (
     <header className="glass-header">
       <div className="nav-container">
@@ -50,9 +52,35 @@ export default function Navigation({ activeTab, setActiveTab, apiStatus }) {
           })}
         </nav>
 
-        <div className="badge badge-success">
-          <Database size={13} />
-          <span>{apiStatus === 'online' ? 'DB Conectada' : 'Conectando...'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <button
+            type="button"
+            onClick={onToggleHideValues}
+            className="nav-tab-btn"
+            title={hideValues ? 'Mostrar montos' : 'Ocultar montos por privacidad'}
+            style={{
+              background: hideValues ? 'rgba(239, 68, 68, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+              border: hideValues ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid rgba(59, 130, 246, 0.4)',
+              color: hideValues ? '#f87171' : '#60a5fa',
+              padding: '0.45rem 0.85rem',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              fontSize: '0.82rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            {hideValues ? <EyeOff size={16} /> : <Eye size={16} />}
+            <span>{hideValues ? 'Oculto' : 'Visible'}</span>
+          </button>
+
+          <div className="badge badge-success">
+            <Database size={13} />
+            <span>{apiStatus === 'online' ? 'DB Conectada' : 'Conectando...'}</span>
+          </div>
         </div>
       </div>
     </header>

@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check, Sparkles } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
+import { formatMoney } from '../utils/formatters';
 
-
-export default function CarteraView({ onRefresh }) {
+export default function CarteraView({ onRefresh, hideValues = false }) {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [accountDetails, setAccountDetails] = useState(null);
@@ -225,14 +225,14 @@ export default function CarteraView({ onRefresh }) {
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Crédito Disponible:</span>
                 <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#a78bfa' }}>
-                  ${(acc.available_credit || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  {formatMoney(acc.available_credit || 0, hideValues)}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                  Límite total: ${acc.credit_limit.toLocaleString('es-MX')} | Deuda Total: ${(acc.total_debt || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  Límite total: {formatMoney(acc.credit_limit, hideValues)} | Deuda Total: {formatMoney(acc.total_debt || 0, hideValues)}
                 </div>
                 {acc.msi_pending > 0 && (
                   <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '0.3rem', background: 'rgba(251, 191, 36, 0.08)', padding: '0.35rem 0.5rem', borderRadius: '4px', border: '1px dashed rgba(251, 191, 36, 0.3)' }}>
-                    Revolvente: ${(acc.balance || 0).toLocaleString('es-MX')} + MSI: ${acc.msi_pending.toLocaleString('es-MX')}
+                    Revolvente: {formatMoney(acc.balance || 0, hideValues)} + MSI: {formatMoney(acc.msi_pending, hideValues)}
                   </div>
                 )}
               </div>
@@ -241,7 +241,7 @@ export default function CarteraView({ onRefresh }) {
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Saldo Actual:</span>
                 <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#60a5fa' }}>
-                  ${acc.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  {formatMoney(acc.balance, hideValues)}
                 </div>
               </div>
             )}

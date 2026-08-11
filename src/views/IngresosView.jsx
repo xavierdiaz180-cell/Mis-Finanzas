@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, Mic, Filter, Plus, FileText, CheckCircle2, Sparkles } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
+import { formatMoney } from '../utils/formatters';
 
-export default function IngresosView({ onRefresh }) {
+export default function IngresosView({ onRefresh, hideValues = false }) {
   const [incomes, setIncomes] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [showDocScanner, setShowDocScanner] = useState(false);
@@ -169,7 +170,7 @@ export default function IngresosView({ onRefresh }) {
                 </div>
 
                 <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#34d399' }}>
-                  +${inc.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  +{formatMoney(inc.amount, hideValues)}
                 </div>
               </div>
             ))

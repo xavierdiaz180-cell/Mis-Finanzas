@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Mic, Search, Filter, Calendar, Tag, Wallet, AlertTriangle, CheckCircle2, Sparkles, FileText, Trash2 } from 'lucide-react';
-
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
+import { formatMoney } from '../utils/formatters';
 
-export default function GastosView({ onRefresh }) {
+export default function GastosView({ onRefresh, hideValues = false }) {
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -420,7 +420,7 @@ export default function GastosView({ onRefresh }) {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#f43f5e' }}>
-                    -${exp.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    -{formatMoney(exp.amount, hideValues)}
                   </div>
 
                   <button 
