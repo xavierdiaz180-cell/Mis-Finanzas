@@ -160,6 +160,11 @@ async function initDatabase() {
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
 
+  // Add missing columns to accounts if they don't exist yet
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS min_payment REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
+
   // 6. Installment Plans (MSI)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS installment_plans (
