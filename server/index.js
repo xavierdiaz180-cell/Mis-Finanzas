@@ -735,6 +735,7 @@ app.post('/api/documents/reconcile', async (req, res) => {
       const totalBalance = parseFloat(extracted_data.total_balance || 0);
       const availableCredit = parseFloat(extracted_data.available_credit || 0);
       const minPayment = parseFloat(extracted_data.minimum_payment || 0);
+      const noInterestPayment = parseFloat(extracted_data.no_interest_payment || extracted_data.payment_for_no_interest || totalBalance || 0);
       const interestRate = parseFloat(extracted_data.interest_rate || 0);
       const dueDate = extracted_data.due_date || null;
       const cutoffDate = extracted_data.cutoff_date || null;
@@ -751,13 +752,15 @@ app.post('/api/documents/reconcile', async (req, res) => {
             credit_limit = ?, 
             interest_rate = ?, 
             due_date = ?, 
-            cutoff_date = ? 
+            cutoff_date = ?,
+            min_payment = ?,
+            no_interest_payment = ?
            WHERE id = ?`,
-          [totalBalance, calculatedAvailable, calculatedLimit, interestRate, dueDate, cutoffDate, account_id]
+          [totalBalance, calculatedAvailable, calculatedLimit, interestRate, dueDate, cutoffDate, minPayment, noInterestPayment, account_id]
         );
 
         // Upsert Debt entry corresponding to this Credit Card
-        const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ?', [account.name, `%${account.name}%`]);
+        const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ? OR id = ?', [account.name, `%${account.name}%`, account_id]);
         let debtId;
         if (existingDebt) {
           debtId = existingDebt.id;
@@ -766,16 +769,19 @@ app.post('/api/documents/reconcile', async (req, res) => {
               original_amount = CASE WHEN original_amount = 0 THEN ? ELSE original_amount END,
               current_balance = ?, 
               payment_amount = ?, 
+              min_payment = ?,
+              no_interest_payment = ?,
               interest_rate = ?, 
-              due_date = ? 
+              due_date = ?,
+              cutoff_date = ?
              WHERE id = ?`,
-            [totalBalance, totalBalance, minPayment, interestRate, dueDate, existingDebt.id]
+            [totalBalance, totalBalance, noInterestPayment, minPayment, noInterestPayment, interestRate, dueDate, cutoffDate, existingDebt.id]
           );
         } else {
           const debtRes = await dbRun(
-            `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
-             VALUES (?, 'credit_card', ?, ?, ?, ?, ?)`,
-            [account.name, totalBalance, totalBalance, minPayment, interestRate, dueDate]
+            `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date)
+             VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [account.name, totalBalance, totalBalance, noInterestPayment, minPayment, noInterestPayment, interestRate, dueDate, cutoffDate]
           );
           debtId = debtRes.lastID;
         }

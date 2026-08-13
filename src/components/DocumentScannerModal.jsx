@@ -493,16 +493,36 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
 
             {/* Extracted Data Cards */}
             <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid var(--border-subtle)', padding: '1rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
-              {Object.entries(scanResult.extractedData).map(([key, val]) => (
-                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px dashed var(--border-subtle)' }}>
-                  <span style={{ color: 'var(--text-muted)', textTransform: 'capitalize', fontSize: '0.85rem' }}>
-                    {key.replace(/_/g, ' ')}:
-                  </span>
-                  <span style={{ fontWeight: '600', color: '#f8fafc', fontSize: '0.9rem' }}>
-                    {typeof val === 'number' ? `$${val.toLocaleString('es-MX')}` : typeof val === 'object' ? JSON.stringify(val) : String(val)}
-                  </span>
-                </div>
-              ))}
+              {Object.entries(scanResult.extractedData).map(([key, val]) => {
+                const labelMap = {
+                  total_balance: 'Saldo Total Pendiente',
+                  minimum_payment: 'Pago Mínimo',
+                  no_interest_payment: 'Pago para No Generar Intereses',
+                  cutoff_date: 'Fecha de Corte',
+                  due_date: 'Fecha Límite de Pago',
+                  interest_rate: 'Tasa de Interés (%)',
+                  available_credit: 'Crédito Disponible',
+                  deposit_amount: 'Monto Depositado',
+                  payroll_loans_deduction: 'Descuento de Préstamos',
+                  employer: 'Empresa / Empleador',
+                  date: 'Fecha',
+                  vendor: 'Proveedor / Emisor',
+                  concept: 'Concepto',
+                  amount: 'Monto Total',
+                  frequency: 'Frecuencia'
+                };
+                const label = labelMap[key] || key.replace(/_/g, ' ');
+                return (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px dashed var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      {label}:
+                    </span>
+                    <span style={{ fontWeight: '600', color: '#f8fafc', fontSize: '0.9rem' }}>
+                      {typeof val === 'number' && !key.includes('rate') ? `$${val.toLocaleString('es-MX')}` : typeof val === 'number' && key.includes('rate') ? `${val}%` : typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>

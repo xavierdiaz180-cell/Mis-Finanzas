@@ -141,10 +141,11 @@ function fallbackDocumentScanner(docType, referenceName) {
       type: 'credit_card',
       reference: referenceName || 'Estado de Cuenta Tarjeta',
       total_balance: 14500.00,
+      minimum_payment: 1200.00,
+      no_interest_payment: 14500.00,
       available_credit: 25500.00,
       cutoff_date: '2026-08-15',
       due_date: '2026-09-05',
-      minimum_payment: 1200.00,
       interest_rate: 42.5,
       msi_plans: [
         { concept: 'Laptop Oficina', monthly_amount: 1500, remaining_installments: 6 }
@@ -206,13 +207,14 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
       Analiza la imagen del documento adjunto (tipo: ${docType}) y extrae exactamente los datos indicados.
 
       === REGLAS ESTRICTAS PARA credit_card (estado de cuenta tarjeta de crédito) ===
-      - "total_balance": El campo "Pago para no generar intereses" o "Saldo total" o "Pago requerido este periodo". Es el monto total que debes pagar para no generar intereses. NO confundir con "Adeudo del periodo anterior".
-      - "minimum_payment": El campo "Pago mínimo" exacto. Suele ser el monto más pequeño requerido.
+      - "total_balance": Saldo Total Pendiente o Adeudo Total de la tarjeta.
+      - "minimum_payment": El monto de "Pago mínimo" exacto requerido este periodo.
+      - "no_interest_payment": El monto de "Pago para no generar intereses" exacto indicado en el estado de cuenta.
       - "cutoff_date": La "Fecha de corte" en formato YYYY-MM-DD.
       - "due_date": La "Fecha límite de pago" en formato YYYY-MM-DD. NO confundir con fecha de corte.
       - "available_credit": El "Crédito disponible" si aparece. Si no, déjalo en 0.
-      - "interest_rate": La "Tasa de interés anual variable" o "CAT" como número (ej: 68.51 para 68.51%). NO es un valor en pesos.
-      - "msi_plans": Array de cargos a meses sin intereses. Cada elemento: { "concept": "...", "monthly_amount": 0, "remaining_installments": 0 }. Array vacío si no hay MSI.
+      - "interest_rate": La "Tasa de interés anual variable" o "CAT" como número (ej: 42.5 para 42.5%). NO en pesos.
+      - "msi_plans": Array de compras a meses sin intereses { "concept": "...", "monthly_amount": 0, "remaining_installments": 0 }.
 
       === REGLAS PARA payroll (recibo de nómina) ===
       - "deposit_amount": El monto neto depositado / "Importe neto a pagar"
@@ -228,7 +230,7 @@ async function analyzeDocument(fileBuffer, mimeType, docType, referenceName, exi
       - "due_date": Fecha límite de pago YYYY-MM-DD
 
       Responde ÚNICAMENTE con JSON válido (sin markdown, sin texto adicional).
-      Para credit_card: { "total_balance": 0, "available_credit": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "minimum_payment": 0, "interest_rate": 0, "msi_plans": [] }
+      Para credit_card: { "total_balance": 0, "minimum_payment": 0, "no_interest_payment": 0, "cutoff_date": "YYYY-MM-DD", "due_date": "YYYY-MM-DD", "available_credit": 0, "interest_rate": 0, "msi_plans": [] }
       Para payroll: { "deposit_amount": 0, "payroll_loans_deduction": 0, "employer": "", "date": "YYYY-MM-DD" }
       Para receipt: { "vendor": "", "concept": "", "amount": 0, "frequency": "monthly", "due_date": "YYYY-MM-DD" }
     `;
