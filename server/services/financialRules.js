@@ -137,12 +137,13 @@ async function calculateFinancialMetrics() {
   `, [today, `${today}%`]);
   const gastadoHoy = parseFloat(todaySpentRow[0]?.total || 0);
 
-  // Calculate accumulated budget for month
-  const totalDaysPassedInMonth = dayOfMonth;
-  const totalBudgetSoFar = (baseDailyLimit * totalDaysPassedInMonth) + (budgetRecord.rollover_amount || 0);
+  // Calculate total budget for full month (e.g. 31 days in August * $200 = $6,200)
+  const [yearStr, monthStr] = currentMonth.split('-');
+  const totalDaysInMonth = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10), 0).getDate();
+  const totalFullMonthBudget = (baseDailyLimit * totalDaysInMonth) + (budgetRecord.rollover_amount || 0);
   const totalSpentSoFar = gastosMes;
   const disponibleHoyPresupuesto = baseDailyLimit - gastadoHoy;
-  const disponibleAcumuladoMes = Math.max(0, totalBudgetSoFar - totalSpentSoFar);
+  const disponibleAcumuladoMes = Math.max(0, totalFullMonthBudget - totalSpentSoFar);
 
   return {
     disponible_hoy: disponibleHoy,
@@ -162,6 +163,8 @@ async function calculateFinancialMetrics() {
       gastado_hoy: gastadoHoy,
       disponible_hoy: disponibleHoyPresupuesto,
       acumulado_mes: disponibleAcumuladoMes,
+      dias_mes: totalDaysInMonth,
+      presupuesto_total_mes: totalFullMonthBudget,
       reinicio_mes: '1 de cada mes'
     }
   };

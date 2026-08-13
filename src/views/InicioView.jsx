@@ -111,8 +111,15 @@ export default function InicioView({ summary, onNavigate, hideValues = false }) 
           </div>
 
           <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Resumen acumulado del mes:</span>
-            <span style={{ fontSize: '1.1rem', fontWeight: '700', color: '#60a5fa' }}>
+            <div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                Resumen disponible del mes completo:
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Presupuesto mes ({presupuesto_diario.dias_mes || 31} días × ${presupuesto_diario.limite_diario || 200}) - Gastos del mes
+              </div>
+            </div>
+            <span style={{ fontSize: '1.25rem', fontWeight: '700', color: '#60a5fa' }}>
               {formatMoney(presupuesto_diario.acumulado_mes || 0, hideValues)}
             </span>
           </div>
