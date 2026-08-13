@@ -7,20 +7,32 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
   const [file, setFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [referenceName, setReferenceName] = useState('');
-  const [targetAccountId, setTargetAccountId] = useState('');
+  const [targetId, setTargetId] = useState('new');
   const [accounts, setAccounts] = useState([]);
+  const [debts, setDebts] = useState([]);
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/accounts`)
-      .then(res => res.json())
-      .then(data => {
-        setAccounts(data);
-        if (data.length > 0) setTargetAccountId(data[0].id);
-      });
+    Promise.all([
+      fetch(`${API_BASE}/api/accounts`).then(r => r.json()),
+      fetch(`${API_BASE}/api/debts`).then(r => r.json())
+    ]).then(([accData, debtData]) => {
+      const validAccs = Array.isArray(accData) ? accData : [];
+      const validDebts = Array.isArray(debtData) ? debtData : [];
+      setAccounts(validAccs);
+      setDebts(validDebts);
+
+      if (selectedType === 'credit_card' && validDebts.length > 0) {
+        setTargetId(`debt-${validDebts[0].id}`);
+      } else if (validAccs.length > 0) {
+        setTargetId(`acc-${validAccs[0].id}`);
+      } else {
+        setTargetId('new');
+      }
+    }).catch(err => console.error('Error al cargar cuentas/deudas en escáner:', err));
   }, []);
 
   const handleFileChange = (e) => {
@@ -42,11 +54,16 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
     setIsScanning(true);
     setErrorMsg('');
 
+    let account_id = null;
+    if (targetId.startsWith('acc-')) {
+      account_id = parseInt(targetId.replace('acc-', ''), 10);
+    }
+
     const formData = new FormData();
     if (file) formData.append('file', file);
     formData.append('doc_type', selectedType);
     formData.append('reference_name', referenceName || getDocTypeName(selectedType));
-    formData.append('target_account_id', targetAccountId);
+    if (account_id) formData.append('target_account_id', account_id);
 
     fetch(`${API_BASE}/api/documents/scan`, {
       method: 'POST',
@@ -66,18 +83,29 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
   const handleConfirmReconcile = () => {
     if (!scanResult) return;
 
+    let account_id = null;
+    let debt_id = null;
+
+    if (targetId.startsWith('acc-')) {
+      account_id = parseInt(targetId.replace('acc-', ''), 10);
+    } else if (targetId.startsWith('debt-')) {
+      debt_id = parseInt(targetId.replace('debt-', ''), 10);
+    }
+
     fetch(`${API_BASE}/api/documents/reconcile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         document_id: scanResult.document_id,
         doc_type: selectedType,
-        account_id: parseInt(targetAccountId, 10),
+        account_id,
+        debt_id,
         extracted_data: scanResult.extractedData
       })
     })
       .then(res => res.json())
-      .then(() => {
+      .then(data => {
+        if (data.error) throw new Error(data.error);
         if (onReconciled) onReconciled();
         onClose();
       })
@@ -309,14 +337,14 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
               </span>
             </div>
 
-            {/* Account Selector */}
+            {/* Account / Debt Selector */}
             <div>
               <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: '500', display: 'block', marginBottom: '0.35rem' }}>
-                Cuenta / Tarjeta Asociada:
+                Tarjeta / Cuenta a Actualizar:
               </label>
               <select 
-                value={targetAccountId} 
-                onChange={e => setTargetAccountId(e.target.value)} 
+                value={targetId} 
+                onChange={e => setTargetId(e.target.value)} 
                 style={{
                   width: '100%',
                   padding: '0.75rem',
@@ -328,7 +356,21 @@ export default function DocumentScannerModal({ docType = 'payroll', onClose, onR
                   outline: 'none'
                 }}
               >
-                {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.type})</option>)}
+                <option value="new">➕ Crear Nueva Tarjeta de Crédito</option>
+                {debts.length > 0 && (
+                  <optgroup label="Tarjetas en Deudas">
+                    {debts.map(d => (
+                      <option key={`debt-${d.id}`} value={`debt-${d.id}`}>💳 {d.name} (Deuda)</option>
+                    ))}
+                  </optgroup>
+                )}
+                {accounts.length > 0 && (
+                  <optgroup label="Cuentas Registradas">
+                    {accounts.map(acc => (
+                      <option key={`acc-${acc.id}`} value={`acc-${acc.id}`}>🏦 {acc.name} ({acc.type})</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 
