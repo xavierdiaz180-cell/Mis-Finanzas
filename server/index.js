@@ -503,13 +503,40 @@ app.get('/api/debts', async (req, res) => {
 
 app.post('/api/debts', async (req, res) => {
   try {
-    const { name, type, original_amount = 0, current_balance = 0, payment_amount = 0, interest_rate = 0, due_date, remaining_payments = 0 } = req.body;
+    const { 
+      name, 
+      type, 
+      original_amount = 0, 
+      current_balance = 0, 
+      payment_amount = 0, 
+      min_payment = 0,
+      no_interest_payment = 0,
+      interest_rate = 0, 
+      due_date, 
+      cutoff_date,
+      remaining_payments = 0 
+    } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'Nombre y tipo de deuda son requeridos.' });
 
+    const finalNoInterestPayment = parseFloat(no_interest_payment || payment_amount || current_balance || 0);
+    const finalMinPayment = parseFloat(min_payment || (current_balance ? Math.round(current_balance * 0.05) : 0));
+
     const result = await dbRun(
-      `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date, remaining_payments)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, type, parseFloat(original_amount), parseFloat(current_balance || original_amount), parseFloat(payment_amount), parseFloat(interest_rate), due_date, parseInt(remaining_payments, 10)]
+      `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date, remaining_payments)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name, 
+        type, 
+        parseFloat(original_amount), 
+        parseFloat(current_balance || original_amount), 
+        finalNoInterestPayment,
+        finalMinPayment,
+        finalNoInterestPayment,
+        parseFloat(interest_rate), 
+        due_date, 
+        cutoff_date,
+        parseInt(remaining_payments, 10)
+      ]
     );
 
     res.json({ success: true, debt_id: result.lastID, message: 'Deuda registrada exitosamente.' });

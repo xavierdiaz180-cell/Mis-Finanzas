@@ -146,12 +146,19 @@ async function initDatabase() {
       original_amount REAL DEFAULT 0,
       current_balance REAL DEFAULT 0,
       payment_amount REAL DEFAULT 0,
+      min_payment REAL DEFAULT 0,
+      no_interest_payment REAL DEFAULT 0,
       interest_rate REAL DEFAULT 0,
       due_date TEXT,
+      cutoff_date TEXT,
       remaining_payments INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS min_payment REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
 
   // 6. Installment Plans (MSI)
   await pool.query(`
