@@ -699,7 +699,11 @@ app.post('/api/documents/scan', upload.single('file'), async (req, res) => {
       ...analysis
     });
   } catch (error) {
-    res.status(500).json({ error: error.messapp.post('/api/documents/reconcile', async (req, res) => {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/documents/reconcile', async (req, res) => {
   try {
     const { document_id, doc_type, account_id, debt_id, extracted_data } = req.body;
     const today = new Date().toISOString().split('T')[0];
