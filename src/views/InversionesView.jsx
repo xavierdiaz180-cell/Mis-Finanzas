@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PiggyBank, Plus, ArrowUpRight, ArrowDownRight, ShieldAlert, ShieldCheck, Shield, RefreshCw, X, Landmark } from 'lucide-react';
+import { PiggyBank, Plus, ArrowUpRight, ArrowDownRight, ShieldAlert, ShieldCheck, Shield, RefreshCw, X, Landmark, Trash2 } from 'lucide-react';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
 
@@ -133,6 +133,18 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
       .catch(err => alert('Error al realizar retiro: ' + err.message));
   };
 
+  const handleDeleteInvestment = (inv) => {
+    if (!window.confirm(`¿Eliminar la inversión "${inv.name}"? Se borrará del portafolio permanentemente. Esta acción no se puede deshacer.`)) return;
+    fetch(`${API_BASE}/api/investments/${inv.id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) return alert(data.error);
+        loadData();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al eliminar inversión: ' + err.message));
+  };
+
   const getRiskBadge = (risk) => {
     switch (risk) {
       case 'low':
@@ -254,6 +266,30 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
                   <RefreshCw size={14} /> Actualizar
                 </button>
               </div>
+
+              {/* Delete button */}
+              <button
+                onClick={() => handleDeleteInvestment(inv)}
+                style={{
+                  width: '100%',
+                  background: 'rgba(244,63,94,0.08)',
+                  border: '1px solid rgba(244,63,94,0.25)',
+                  color: '#f87171',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.4rem',
+                  fontSize: '0.78rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.35rem',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(244,63,94,0.2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(244,63,94,0.08)'}
+              >
+                <Trash2 size={13} /> Eliminar Inversión
+              </button>
             </div>
           ))
         )}

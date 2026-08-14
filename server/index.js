@@ -481,6 +481,19 @@ app.post('/api/investments/:id/withdraw', async (req, res) => {
   }
 });
 
+app.delete('/api/investments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const investment = await dbGet('SELECT * FROM investments WHERE id = ?', [id]);
+    if (!investment) return res.status(404).json({ error: 'Inversión no encontrada.' });
+
+    await dbRun('DELETE FROM investments WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Inversión eliminada correctamente.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DEUDAS API
 app.get('/api/debts', async (req, res) => {
   try {

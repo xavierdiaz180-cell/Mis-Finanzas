@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, Mic, Filter, Plus, FileText, CheckCircle2, Sparkles } from 'lucide-react';
+import { TrendingUp, Filter, Plus, Sparkles, Trash2 } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
@@ -76,6 +76,14 @@ export default function IngresosView({ onRefresh, hideValues = false }) {
         if (onRefresh) onRefresh();
       })
       .catch(err => alert('Error al guardar ingreso: ' + err.message));
+  };
+
+  const handleDeleteIncome = (inc) => {
+    if (!window.confirm(`¿Eliminar el ingreso "${inc.concept}" por $${inc.amount.toLocaleString('es-MX')}? Esta acción no se puede deshacer.`)) return;
+    fetch(`${API_BASE}/api/transactions/${inc.id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(() => { loadData(); if (onRefresh) onRefresh(); })
+      .catch(err => alert('Error al eliminar ingreso: ' + err.message));
   };
 
   return (
@@ -157,20 +165,45 @@ export default function IngresosView({ onRefresh, hideValues = false }) {
                   padding: '0.85rem 1.1rem',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  gap: '0.75rem'
                 }}
               >
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '1rem', fontWeight: '600' }}>{inc.concept}</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', marginTop: '0.2rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: '0.75rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
                     <span>{inc.date}</span>
                     <span>• {inc.category}</span>
                     <span>• {inc.account_name || 'Cuenta'}</span>
                   </div>
                 </div>
 
-                <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#34d399' }}>
-                  +{formatMoney(inc.amount, hideValues)}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: '700', color: '#34d399' }}>
+                    +{formatMoney(inc.amount, hideValues)}
+                  </div>
+                  <button
+                    onClick={() => handleDeleteIncome(inc)}
+                    title="Eliminar ingreso"
+                    style={{
+                      background: 'rgba(244,63,94,0.12)',
+                      border: '1px solid rgba(244,63,94,0.3)',
+                      color: '#f43f5e',
+                      borderRadius: '8px',
+                      width: '34px',
+                      height: '34px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      flexShrink: 0
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(244,63,94,0.25)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(244,63,94,0.12)'}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               </div>
             ))
