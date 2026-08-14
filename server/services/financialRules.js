@@ -22,6 +22,13 @@ async function calculateFinancialMetrics() {
   const currentMonth = today.substring(0, 7); // YYYY-MM
   const dayOfMonth = parseInt(today.split('-')[2], 10);
 
+  // Auto-sync available_credit for credit cards with a credit_limit
+  await dbRun(`
+    UPDATE accounts 
+    SET available_credit = GREATEST(0, credit_limit - balance)
+    WHERE type = 'credit_card' AND credit_limit > 0
+  `).catch(() => {});
+
   // 1. Available Today
   const liquidAccounts = await dbAll(`
     SELECT SUM(balance) as total FROM accounts 
@@ -193,14 +200,56 @@ async function processTransaction({ date, type, amount, category, concept, accou
 
   // Financial Rules for account updates:
   // Bank / Payroll / Cash: Expense reduces balance. Income increases balance.
-  // Credit Card: Expense reduces available_credit. Payment increases available_credit.
+  // Credit Card: Expense INCREASES balance (debt) and REDUCES available_credit. Payment REDUCES balance and INCREASES available_credit.
   if (account.type === 'credit_card') {
+    const numAmount = parseFloat(amount);
+    const creditLimit = parseFloat(account.credit_limit) || 0;
+
     if (type === 'expense') {
-      const newAvailable = Math.max(0, account.available_credit - parseFloat(amount));
-      await dbRun('UPDATE accounts SET available_credit = ? WHERE id = ?', [newAvailable, account_id]);
+      const newBalance = (parseFloat(account.balance) || 0) + numAmount;
+      const newAvailable = creditLimit > 0
+        ? Math.max(0, creditLimit - newBalance)
+        : Math.max(0, (parseFloat(account.available_credit) || 0) - numAmount);
+
+      await dbRun(
+        'UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?',
+        [newBalance, newAvailable, account_id]
+      );
+
+      // Sync corresponding debt record in `debts` table
+      const debt = await dbGet(
+        "SELECT * FROM debts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)",
+        [account.name, `%${account.name}%`]
+      );
+      if (debt) {
+        await dbRun(
+          'UPDATE debts SET current_balance = current_balance + ? WHERE id = ?',
+          [numAmount, debt.id]
+        );
+      }
+
     } else if (type === 'payment' || type === 'income') {
-      const newAvailable = Math.min(account.credit_limit, account.available_credit + parseFloat(amount));
-      await dbRun('UPDATE accounts SET available_credit = ? WHERE id = ?', [newAvailable, account_id]);
+      const newBalance = Math.max(0, (parseFloat(account.balance) || 0) - numAmount);
+      const newAvailable = creditLimit > 0
+        ? Math.min(creditLimit, creditLimit - newBalance)
+        : Math.min(creditLimit, (parseFloat(account.available_credit) || 0) + numAmount);
+
+      await dbRun(
+        'UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?',
+        [newBalance, newAvailable, account_id]
+      );
+
+      // Sync corresponding debt record in `debts` table
+      const debt = await dbGet(
+        "SELECT * FROM debts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)",
+        [account.name, `%${account.name}%`]
+      );
+      if (debt) {
+        await dbRun(
+          'UPDATE debts SET current_balance = GREATEST(0, current_balance - ?) WHERE id = ?',
+          [numAmount, debt.id]
+        );
+      }
     }
   } else {
     // Debit / Cash / Payroll / Bank
@@ -240,21 +289,34 @@ async function deleteTransaction(transactionId) {
 
   if (account) {
     if (account.type === 'credit_card') {
+      const creditLimit = parseFloat(account.credit_limit) || 0;
+
       if (tx.type === 'expense') {
-        const newAvailable = Math.min(account.credit_limit, account.available_credit + amount);
-        const newBalance = Math.max(0, account.balance - amount);
+        const newBalance = Math.max(0, (parseFloat(account.balance) || 0) - amount);
+        const newAvailable = creditLimit > 0
+          ? Math.min(creditLimit, creditLimit - newBalance)
+          : Math.min(creditLimit, (parseFloat(account.available_credit) || 0) + amount);
+
         await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvailable, newBalance, account.id]);
 
         // Sync corresponding debt
-        const existingDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ?', [account.name, `%${account.name}%`]);
+        const existingDebt = await dbGet("SELECT * FROM debts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)", [account.name, `%${account.name}%`]);
         if (existingDebt) {
           await dbRun('UPDATE debts SET current_balance = GREATEST(0, current_balance - ?) WHERE id = ?', [amount, existingDebt.id]);
-
         }
+
       } else if (tx.type === 'payment' || tx.type === 'income') {
-        const newAvailable = Math.max(0, account.available_credit - amount);
-        const newBalance = account.balance + amount;
+        const newBalance = (parseFloat(account.balance) || 0) + amount;
+        const newAvailable = creditLimit > 0
+          ? Math.max(0, creditLimit - newBalance)
+          : Math.max(0, (parseFloat(account.available_credit) || 0) - amount);
+
         await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvailable, newBalance, account.id]);
+
+        const existingDebt = await dbGet("SELECT * FROM debts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)", [account.name, `%${account.name}%`]);
+        if (existingDebt) {
+          await dbRun('UPDATE debts SET current_balance = current_balance + ? WHERE id = ?', [amount, existingDebt.id]);
+        }
       }
     } else {
       // Debit / Cash / Payroll / Bank
