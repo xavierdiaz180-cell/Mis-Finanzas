@@ -3,7 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
 const { initDatabase, dbAll, dbGet, dbRun } = require('./database');
-const { calculateFinancialMetrics, processTransaction, deleteTransaction } = require('./services/financialRules');
+const { calculateFinancialMetrics, processTransaction, deleteTransaction, syncCreditCardsAndDebts } = require('./services/financialRules');
 
 const { parseVoiceDictation, analyzeDocument } = require('./services/geminiService');
 const { generateCoachChatResponse, getCoachRecommendations, generateDeepAnalysis } = require('./services/coachService');
@@ -590,6 +590,7 @@ app.delete('/api/investments/:id', async (req, res) => {
 // DEUDAS API
 app.get('/api/debts', async (req, res) => {
   try {
+    await syncCreditCardsAndDebts();
     const debts = await dbAll('SELECT * FROM debts ORDER BY id DESC');
     const installmentPlans = await dbAll('SELECT * FROM installment_plans');
 

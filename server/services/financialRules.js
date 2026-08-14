@@ -17,17 +17,127 @@ function getLocalDateString(dateObj = new Date()) {
   return formatter.format(dateObj);
 }
 
+async function syncCreditCardsAndDebts() {
+  try {
+    const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
+    for (const acc of creditAccounts) {
+      // 1. Calculate sum of expense transactions vs payments for this account
+      const txRow = await dbGet(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
+          COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
+        FROM transactions 
+        WHERE account_id = ?
+      `, [acc.id]);
+
+      const netTxBalance = parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments);
+      
+      let newAccBalance = parseFloat(acc.balance || 0);
+      if (netTxBalance > 0 && newAccBalance < netTxBalance) {
+        newAccBalance = netTxBalance;
+      }
+
+      const creditLimit = parseFloat(acc.credit_limit || 0);
+      const newAvailable = creditLimit > 0 ? Math.max(0, creditLimit - newAccBalance) : parseFloat(acc.available_credit || 0);
+
+      await dbRun(
+        'UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?',
+        [newAccBalance, newAvailable, acc.id]
+      );
+
+      // 2. Find matching debt in `debts` table
+      const matchingDebt = await dbGet(
+        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+        [`%${acc.name.toLowerCase()}%`, `%${acc.name.toLowerCase()}%`, acc.name]
+      );
+
+      if (matchingDebt) {
+        let newDebtBalance = parseFloat(matchingDebt.current_balance || 0);
+        if (newAccBalance > newDebtBalance) {
+          newDebtBalance = newAccBalance;
+        }
+
+        const minPayment = parseFloat(acc.min_payment || matchingDebt.min_payment || 0);
+        const noInterestPayment = parseFloat(acc.no_interest_payment || matchingDebt.no_interest_payment || newDebtBalance || 0);
+        const cutoffDate = acc.cutoff_date || matchingDebt.cutoff_date || null;
+        const dueDate = acc.due_date || matchingDebt.due_date || null;
+        const interestRate = parseFloat(acc.interest_rate || matchingDebt.interest_rate || 0);
+
+        await dbRun(
+          `UPDATE debts SET 
+            current_balance = ?,
+            min_payment = ?,
+            no_interest_payment = ?,
+            cutoff_date = ?,
+            due_date = ?,
+            interest_rate = ?
+           WHERE id = ?`,
+          [newDebtBalance, minPayment, noInterestPayment, cutoffDate, dueDate, interestRate, matchingDebt.id]
+        );
+      } else {
+        await dbRun(
+          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date)
+           VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            acc.name,
+            creditLimit,
+            newAccBalance,
+            acc.no_interest_payment || newAccBalance,
+            acc.min_payment || 0,
+            acc.no_interest_payment || newAccBalance,
+            acc.interest_rate || 0,
+            acc.due_date,
+            acc.cutoff_date
+          ]
+        );
+      }
+    }
+
+    const debts = await dbAll("SELECT * FROM debts WHERE type = 'credit_card'");
+    for (const debt of debts) {
+      const acc = await dbGet(
+        "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+        [`%${debt.name.toLowerCase()}%`, `%${debt.name.toLowerCase()}%`, debt.name]
+      );
+      if (acc) {
+        let newBal = parseFloat(acc.balance || 0);
+        if (parseFloat(debt.current_balance || 0) > newBal) {
+          newBal = parseFloat(debt.current_balance || 0);
+        }
+
+        const limit = parseFloat(acc.credit_limit || 0);
+        const avail = limit > 0 ? Math.max(0, limit - newBal) : parseFloat(acc.available_credit || 0);
+
+        const minPay = parseFloat(acc.min_payment || debt.min_payment || 0);
+        const noIntPay = parseFloat(acc.no_interest_payment || debt.no_interest_payment || 0);
+        const cutoff = acc.cutoff_date || debt.cutoff_date || null;
+        const due = acc.due_date || debt.due_date || null;
+
+        await dbRun(
+          `UPDATE accounts SET 
+            balance = ?, 
+            available_credit = ?,
+            min_payment = ?,
+            no_interest_payment = ?,
+            cutoff_date = ?,
+            due_date = ?
+           WHERE id = ?`,
+          [newBal, avail, minPay, noIntPay, cutoff, due, acc.id]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error in syncCreditCardsAndDebts:', err);
+  }
+}
+
 async function calculateFinancialMetrics() {
   const today = getLocalDateString();
   const currentMonth = today.substring(0, 7); // YYYY-MM
   const dayOfMonth = parseInt(today.split('-')[2], 10);
 
-  // Auto-sync available_credit for credit cards with a credit_limit
-  await dbRun(`
-    UPDATE accounts 
-    SET available_credit = GREATEST(0, credit_limit - balance)
-    WHERE type = 'credit_card' AND credit_limit > 0
-  `).catch(() => {});
+  // Sync credit card balances with transactions & debts
+  await syncCreditCardsAndDebts();
 
   // 1. Available Today
   const liquidAccounts = await dbAll(`
@@ -345,6 +455,7 @@ async function deleteTransaction(transactionId) {
 module.exports = {
   calculateFinancialMetrics,
   processTransaction,
-  deleteTransaction
+  deleteTransaction,
+  syncCreditCardsAndDebts
 };
 
