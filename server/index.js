@@ -345,6 +345,99 @@ app.get('/api/incomes', async (req, res) => {
   }
 });
 
+// CHARTS DATA API
+app.get('/api/charts/data', async (req, res) => {
+  try {
+    // 1. All investments
+    const investments = await dbAll('SELECT * FROM investments ORDER BY last_update ASC');
+
+    // 2. Expenses by category (last 12 months) — PostgreSQL syntax
+    const expensesByCategory = await dbAll(`
+      SELECT category, SUM(amount) as total, COUNT(*) as count
+      FROM transactions
+      WHERE type = 'expense'
+        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
+      GROUP BY category
+      ORDER BY total DESC
+    `);
+
+    // 3. Monthly income vs expenses (last 12 months) — PostgreSQL syntax
+    const monthlyFlow = await dbAll(`
+      SELECT 
+        LEFT(date, 7) as month,
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses,
+        SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net
+      FROM transactions
+      WHERE type IN ('income','expense')
+        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
+      GROUP BY LEFT(date, 7)
+      ORDER BY month ASC
+    `);
+
+    // 4. Daily balance evolution (last 90 days) — PostgreSQL syntax
+    const dailyTransactions = await dbAll(`
+      SELECT 
+        date,
+        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses
+      FROM transactions
+      WHERE type IN ('income','expense')
+        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')
+      GROUP BY date
+      ORDER BY date ASC
+    `);
+
+    // 5. Investment transactions history
+    const investmentHistory = await dbAll(`
+      SELECT date, amount, type, concept, account_id
+      FROM transactions
+      WHERE type IN ('investment_deposit', 'investment_withdrawal')
+      ORDER BY date ASC
+    `).catch(() => []);
+
+    // Calculate cumulative balance for daily chart
+    let cumulativeBalance = 0;
+    const balanceTimeline = dailyTransactions.map(day => {
+      cumulativeBalance += (parseFloat(day.income) || 0) - (parseFloat(day.expenses) || 0);
+      return {
+        date: day.date,
+        balance: parseFloat(cumulativeBalance.toFixed(2)),
+        income: parseFloat(day.income) || 0,
+        expenses: parseFloat(day.expenses) || 0
+      };
+    });
+
+    // Build investment timeline data per investment
+    const investmentTimeline = investments.map(inv => ({
+      name: inv.name,
+      invested: parseFloat(inv.invested_amount) || 0,
+      current: parseFloat(inv.current_documented_value) || 0,
+      gainLoss: (parseFloat(inv.current_documented_value) || 0) - (parseFloat(inv.invested_amount) || 0),
+      returnPct: inv.invested_amount > 0
+        ? parseFloat((((inv.current_documented_value - inv.invested_amount) / inv.invested_amount) * 100).toFixed(2))
+        : 0,
+      lastUpdate: inv.last_update || 'Sin actualizar',
+      riskLevel: inv.risk_level
+    }));
+
+    const totalInvested = investmentTimeline.reduce((s, i) => s + i.invested, 0);
+    const totalCurrentValue = investmentTimeline.reduce((s, i) => s + i.current, 0);
+    const totalReturn = totalCurrentValue - totalInvested;
+    const totalReturnPct = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : 0;
+
+    res.json({
+      investmentTimeline,
+      investmentSummary: { totalInvested, totalCurrentValue, totalReturn, totalReturnPct: parseFloat(totalReturnPct) },
+      expensesByCategory,
+      monthlyFlow,
+      balanceTimeline
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // INVERSIONES API
 app.get('/api/investments', async (req, res) => {
   try {

@@ -9,6 +9,7 @@ import DeudasView from './views/DeudasView';
 import CoachView from './views/CoachView';
 import AnalisisView from './views/AnalisisView';
 import AjustesView from './views/AjustesView';
+import GraficasView from './views/GraficasView';
 import { Database, Server, Cpu } from 'lucide-react';
 import { API_BASE } from './config';
 import './styles/theme.css';
@@ -114,6 +115,10 @@ export default function App() {
 
         {activeTab === 'analisis' && (
           <AnalisisView onRefresh={fetchSummary} hideValues={hideValues} />
+        )}
+
+        {activeTab === 'graficas' && (
+          <GraficasView hideValues={hideValues} />
         )}
 
         {activeTab === 'ajustes' && (

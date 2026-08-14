@@ -11,7 +11,8 @@ import {
   Settings,
   Database,
   Eye,
-  EyeOff
+  EyeOff,
+  LineChart
 } from 'lucide-react';
 
 export const TABS = [
@@ -21,6 +22,7 @@ export const TABS = [
   { id: 'ingresos', label: 'Ingresos', icon: TrendingUp },
   { id: 'inversiones', label: 'Inversiones', icon: PiggyBank },
   { id: 'deudas', label: 'Deudas', icon: CreditCard },
+  { id: 'graficas', label: 'Gráficas', icon: LineChart },
   { id: 'coach', label: 'Coach Financiero', icon: Bot },
   { id: 'analisis', label: 'Análisis', icon: BarChart3 },
   { id: 'ajustes', label: 'Ajustes', icon: Settings },
