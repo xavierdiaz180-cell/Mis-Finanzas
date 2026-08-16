@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Plus, DollarSign, Calendar, Percent, AlertTriangle, CheckCircle2, X, Sparkles, Trash2 } from 'lucide-react';
+import { CreditCard, Plus, DollarSign, Calendar, Percent, AlertTriangle, CheckCircle2, X, Sparkles, Trash2, Settings, Edit3 } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
+import MSIConfigModal from '../components/MSIConfigModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
 
@@ -12,6 +13,7 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
   // Modals
   const [showAddDebtModal, setShowAddDebtModal] = useState(false);
   const [showAddMSIModal, setShowAddMSIModal] = useState(false);
+  const [msiModalDebt, setMsiModalDebt] = useState(null);
   const [selectedDebt, setSelectedDebt] = useState(null);
   const [showPayModal, setShowPayModal] = useState(false);
 
@@ -37,6 +39,54 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
   const [msiTotal, setMsiTotal] = useState('');
   const [msiMonthly, setMsiMonthly] = useState('');
   const [msiInstallmentsTotal, setMsiInstallmentsTotal] = useState('');
+
+  // Form Edit Debt
+  const [editDebtItem, setEditDebtItem] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editCurrentBalance, setEditCurrentBalance] = useState('');
+  const [editMinPayment, setEditMinPayment] = useState('');
+  const [editNoInterestPayment, setEditNoInterestPayment] = useState('');
+  const [editCutoffDate, setEditCutoffDate] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editInterestRate, setEditInterestRate] = useState('');
+
+  const handleStartEditDebt = (debt) => {
+    setEditDebtItem(debt);
+    setEditName(debt.name);
+    setEditCurrentBalance(debt.current_balance || '');
+    setEditMinPayment(debt.min_payment || '');
+    setEditNoInterestPayment(debt.no_interest_payment || '');
+    setEditCutoffDate(debt.cutoff_date || '');
+    setEditDueDate(debt.due_date || '');
+    setEditInterestRate(debt.interest_rate || '');
+  };
+
+  const handleUpdateDebt = (e) => {
+    e.preventDefault();
+    if (!editDebtItem || !editName) return;
+
+    fetch(`${API_BASE}/api/debts/${editDebtItem.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editName,
+        current_balance: parseFloat(editCurrentBalance || 0),
+        min_payment: parseFloat(editMinPayment || 0),
+        no_interest_payment: parseFloat(editNoInterestPayment || editCurrentBalance || 0),
+        cutoff_date: editCutoffDate,
+        due_date: editDueDate,
+        interest_rate: parseFloat(editInterestRate || 0)
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setEditDebtItem(null);
+        loadData();
+        if (onRefresh) onRefresh();
+      })
+      .catch(err => alert('Error al actualizar tarjeta / deuda: ' + err.message));
+  };
 
   const loadData = () => {
     fetch(`${API_BASE}/api/debts`)
@@ -260,10 +310,17 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                         {debt.type === 'credit_card' ? 'Tarjeta de Crédito' : debt.type === 'payroll_loan' ? 'Préstamo de Nómina' : 'Préstamo Personal'}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                       <span className="badge badge-warning">
                         Tasa: {debt.interest_rate || 0}%
                       </span>
+                      <button 
+                        onClick={() => handleStartEditDebt(debt)}
+                        title="Editar Datos de la Tarjeta"
+                        style={{ background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', borderRadius: '6px', padding: '0.35rem 0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Edit3 size={15} />
+                      </button>
                       <button 
                         onClick={() => handleDeleteDebt(debt.id, debt.name, debt.current_balance)}
                         title="Eliminar Deuda"
@@ -316,23 +373,28 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                   {debt.msi_plans && debt.msi_plans.length > 0 && (
                     <div style={{ marginTop: '0.85rem' }}>
                       <span style={{ fontSize: '0.75rem', color: '#a78bfa', fontWeight: '600', display: 'block', marginBottom: '0.35rem' }}>
-                        Planes a Meses Sin Intereses (MSI):
+                        Compras a Meses Sin Intereses (MSI):
                       </span>
-                      {debt.msi_plans.map(msi => (
-                        <div key={msi.id} style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>{msi.concept} ({msi.installments_paid}/{msi.installments_total} meses)</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontWeight: '600', color: '#a78bfa' }}>{formatMoney(msi.monthly_amount, hideValues)}/mes</span>
-                            <button 
-                              onClick={() => handleDeleteMSIPlan(msi.id, msi.concept)}
-                              title="Eliminar este plan MSI"
-                              style={{ background: 'transparent', border: 'none', color: '#f43f5e', cursor: 'pointer', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                      {debt.msi_plans.map(msi => {
+                        const paid = parseInt(msi.installments_paid, 10) || 0;
+                        const total = parseInt(msi.installments_total, 10) || 12;
+                        const currentInstNum = paid + 1;
+                        return (
+                          <div key={msi.id} style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.45rem 0.65rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span><strong>{msi.concept}</strong> (Abono {currentInstNum} de {total})</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ fontWeight: '600', color: '#a78bfa' }}>{formatMoney(msi.monthly_amount, hideValues)}/mes</span>
+                              <button 
+                                onClick={() => handleDeleteMSIPlan(msi.id, msi.concept)}
+                                title="Eliminar este plan MSI"
+                                style={{ background: 'transparent', border: 'none', color: '#f43f5e', cursor: 'pointer', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -349,10 +411,10 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                   </button>
 
                   <button 
-                    onClick={() => { setSelectedDebt(debt); setShowAddMSIModal(true); }}
-                    style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', cursor: 'pointer' }}
+                    onClick={() => setMsiModalDebt(debt)}
+                    style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: '600' }}
                   >
-                    + Agregar MSI
+                    <Settings size={14} /> Configurar MSI
                   </button>
                 </div>
               </div>
@@ -360,6 +422,19 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
           })
         )}
       </div>
+
+      {/* MSI Configuration Modal */}
+      {msiModalDebt && (
+        <MSIConfigModal
+          item={msiModalDebt}
+          isDebt={true}
+          onClose={() => setMsiModalDebt(null)}
+          onSaved={() => {
+            loadData();
+            if (onRefresh) onRefresh();
+          }}
+        />
+      )}
 
       {/* Modal Agregar Deuda / Tarjeta */}
       {showAddDebtModal && (
@@ -447,6 +522,61 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
 
               <button type="submit" className="nav-tab-btn active" style={{ width: '100%', justifyContent: 'center', padding: '0.75rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
                 Confirmar Pago y Descontar Saldo
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Deuda / Tarjeta */}
+      {editDebtItem && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div className="glass-card" style={{ maxWidth: '520px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '1.2rem', color: '#60a5fa' }}>✏️ Editar Datos de {editDebtItem.name}</h3>
+              <button onClick={() => setEditDebtItem(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+
+            <form onSubmit={handleUpdateDebt} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Nombre de la Tarjeta / Deuda:</label>
+                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} required />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Saldo Total Pendiente ($):</label>
+                <input type="number" value={editCurrentBalance} onChange={e => setEditCurrentBalance(e.target.value)} step="0.01" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} required />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Pago Mínimo ($):</label>
+                  <input type="number" value={editMinPayment} onChange={e => setEditMinPayment(e.target.value)} step="0.01" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Pago p/ No Generar Int. ($):</label>
+                  <input type="number" value={editNoInterestPayment} onChange={e => setEditNoInterestPayment(e.target.value)} step="0.01" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha de Corte:</label>
+                  <input type="date" value={editCutoffDate} onChange={e => setEditCutoffDate(e.target.value)} style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Fecha Límite de Pago:</label>
+                  <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Tasa de Interés (% anual):</label>
+                <input type="number" value={editInterestRate} onChange={e => setEditInterestRate(e.target.value)} step="0.1" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} />
+              </div>
+
+              <button type="submit" className="nav-tab-btn active" style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', padding: '0.75rem', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}>
+                Guardar Cambios
               </button>
             </form>
           </div>

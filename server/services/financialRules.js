@@ -17,6 +17,42 @@ function getLocalDateString(dateObj = new Date()) {
   return formatter.format(dateObj);
 }
 
+async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
+  let query = 'SELECT * FROM installment_plans WHERE 1=0';
+  const params = [];
+  if (accId && debtId) {
+    query = 'SELECT * FROM installment_plans WHERE account_id = ? OR debt_id = ?';
+    params.push(accId, debtId);
+  } else if (accId) {
+    query = 'SELECT * FROM installment_plans WHERE account_id = ?';
+    params.push(accId);
+  } else if (debtId) {
+    query = 'SELECT * FROM installment_plans WHERE debt_id = ?';
+    params.push(debtId);
+  }
+
+  const plans = await dbAll(query, params);
+  const activePlans = plans.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
+  
+  const msiMonthlySum = activePlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
+  const msiRemainingTotal = activePlans.reduce((sum, p) => {
+    const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
+    return sum + (parseFloat(p.monthly_amount) * remInst);
+  }, 0);
+
+  const revolvingBalance = Math.max(0, parseFloat(totalBalance || 0) - msiRemainingTotal);
+  const noInterestPayment = activePlans.length > 0 ? (msiMonthlySum + revolvingBalance) : parseFloat(totalBalance || 0);
+
+  return {
+    msiPlans: plans,
+    activePlans,
+    msiMonthlySum,
+    msiRemainingTotal,
+    revolvingBalance,
+    noInterestPayment
+  };
+}
+
 async function syncCreditCardsAndDebts() {
   try {
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
@@ -37,18 +73,22 @@ async function syncCreditCardsAndDebts() {
         newAccBalance = netTxBalance;
       }
 
+      // Find matching debt in `debts` table first to query MSI plans accurately
+      const matchingDebt = await dbGet(
+        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+        [`%${acc.name.toLowerCase()}%`, `%${acc.name.toLowerCase()}%`, acc.name]
+      );
+      const debtId = matchingDebt ? matchingDebt.id : null;
+
+      const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debtId, newAccBalance);
+      const calculatedNoInterest = msiBreakdown.noInterestPayment;
+
       const creditLimit = parseFloat(acc.credit_limit || 0);
       const newAvailable = creditLimit > 0 ? Math.max(0, creditLimit - newAccBalance) : parseFloat(acc.available_credit || 0);
 
       await dbRun(
-        'UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?',
-        [newAccBalance, newAvailable, acc.id]
-      );
-
-      // 2. Find matching debt in `debts` table
-      const matchingDebt = await dbGet(
-        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-        [`%${acc.name.toLowerCase()}%`, `%${acc.name.toLowerCase()}%`, acc.name]
+        'UPDATE accounts SET balance = ?, available_credit = ?, no_interest_payment = ? WHERE id = ?',
+        [newAccBalance, newAvailable, calculatedNoInterest, acc.id]
       );
 
       if (matchingDebt) {
@@ -57,8 +97,7 @@ async function syncCreditCardsAndDebts() {
           newDebtBalance = newAccBalance;
         }
 
-        const minPayment = parseFloat(acc.min_payment || matchingDebt.min_payment || 0);
-        const noInterestPayment = parseFloat(acc.no_interest_payment || matchingDebt.no_interest_payment || newDebtBalance || 0);
+        const minPayment = parseFloat(acc.min_payment || matchingDebt.min_payment || (newDebtBalance * 0.05));
         const cutoffDate = acc.cutoff_date || matchingDebt.cutoff_date || null;
         const dueDate = acc.due_date || matchingDebt.due_date || null;
         const interestRate = parseFloat(acc.interest_rate || matchingDebt.interest_rate || 0);
@@ -72,7 +111,7 @@ async function syncCreditCardsAndDebts() {
             due_date = ?,
             interest_rate = ?
            WHERE id = ?`,
-          [newDebtBalance, minPayment, noInterestPayment, cutoffDate, dueDate, interestRate, matchingDebt.id]
+          [newDebtBalance, minPayment, calculatedNoInterest, cutoffDate, dueDate, interestRate, matchingDebt.id]
         );
       } else {
         await dbRun(
@@ -82,9 +121,9 @@ async function syncCreditCardsAndDebts() {
             acc.name,
             creditLimit,
             newAccBalance,
-            acc.no_interest_payment || newAccBalance,
-            acc.min_payment || 0,
-            acc.no_interest_payment || newAccBalance,
+            calculatedNoInterest,
+            acc.min_payment || (newAccBalance * 0.05),
+            calculatedNoInterest,
             acc.interest_rate || 0,
             acc.due_date,
             acc.cutoff_date
@@ -105,11 +144,13 @@ async function syncCreditCardsAndDebts() {
           newBal = parseFloat(debt.current_balance || 0);
         }
 
+        const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debt.id, newBal);
+        const calculatedNoInterest = msiBreakdown.noInterestPayment;
+
         const limit = parseFloat(acc.credit_limit || 0);
         const avail = limit > 0 ? Math.max(0, limit - newBal) : parseFloat(acc.available_credit || 0);
 
-        const minPay = parseFloat(acc.min_payment || debt.min_payment || 0);
-        const noIntPay = parseFloat(acc.no_interest_payment || debt.no_interest_payment || 0);
+        const minPay = parseFloat(acc.min_payment || debt.min_payment || (newBal * 0.05));
         const cutoff = acc.cutoff_date || debt.cutoff_date || null;
         const due = acc.due_date || debt.due_date || null;
 
@@ -122,7 +163,16 @@ async function syncCreditCardsAndDebts() {
             cutoff_date = ?,
             due_date = ?
            WHERE id = ?`,
-          [newBal, avail, minPay, noIntPay, cutoff, due, acc.id]
+          [newBal, avail, minPay, calculatedNoInterest, cutoff, due, acc.id]
+        );
+
+        await dbRun(
+          `UPDATE debts SET 
+            current_balance = ?,
+            min_payment = ?,
+            no_interest_payment = ?
+           WHERE id = ?`,
+          [newBal, minPay, calculatedNoInterest, debt.id]
         );
       }
     }

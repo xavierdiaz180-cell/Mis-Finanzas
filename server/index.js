@@ -102,22 +102,34 @@ app.get('/api/accounts', async (req, res) => {
 
     const processedAccounts = accounts.map(acc => {
       if (acc.type === 'credit_card') {
-        // Find debts matching this account
         const matchingDebts = debts.filter(d => d.name === acc.name || d.name.toLowerCase().includes(acc.name.toLowerCase()) || acc.name.toLowerCase().includes(d.name.toLowerCase()));
         const debtIds = matchingDebts.map(d => d.id);
 
-        // Sum remaining balances of all MSI plans linked to this account or its debts
         const msiPlans = installmentPlans.filter(p => p.account_id === acc.id || debtIds.includes(p.debt_id));
-        const msiPending = msiPlans.reduce((sum, p) => sum + (p.remaining_balance || 0), 0);
+        const activeMsiPlans = msiPlans.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
 
-        const totalDebt = (acc.balance || 0) + msiPending;
+        const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
+        const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
+          const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
+          return sum + (parseFloat(p.monthly_amount) * remInst);
+        }, 0);
+
+        const totalDebt = parseFloat(acc.balance || 0);
+        const revolvingBalance = Math.max(0, totalDebt - msiRemainingTotal);
+        const noInterestPayment = activeMsiPlans.length > 0 ? (msiMonthlySum + revolvingBalance) : (parseFloat(acc.no_interest_payment) || totalDebt);
         const available = acc.credit_limit > 0 ? Math.max(0, acc.credit_limit - totalDebt) : acc.available_credit;
 
         return {
           ...acc,
-          msi_pending: msiPending,
+          balance: totalDebt,
           total_debt: totalDebt,
-          available_credit: available
+          available_credit: available,
+          msi_pending: msiRemainingTotal,
+          msi_monthly_sum: msiMonthlySum,
+          msi_remaining_total: msiRemainingTotal,
+          revolving_balance: revolvingBalance,
+          no_interest_payment: noInterestPayment,
+          msi_plans: msiPlans
         };
       }
       return acc;
@@ -595,9 +607,26 @@ app.get('/api/debts', async (req, res) => {
     const installmentPlans = await dbAll('SELECT * FROM installment_plans');
 
     const debtsWithMSI = debts.map(debt => {
-      const msi = installmentPlans.filter(plan => plan.debt_id === debt.id);
+      const msi = installmentPlans.filter(plan => plan.debt_id === debt.id || (plan.account_id && plan.account_id === debt.account_id));
+      const activeMsiPlans = msi.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
+
+      const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
+      const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
+        const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
+        return sum + (parseFloat(p.monthly_amount) * remInst);
+      }, 0);
+
+      const totalBalance = parseFloat(debt.current_balance || 0);
+      const revolvingBalance = Math.max(0, totalBalance - msiRemainingTotal);
+      const noInterestPayment = activeMsiPlans.length > 0 ? (msiMonthlySum + revolvingBalance) : (parseFloat(debt.no_interest_payment) || totalBalance);
+
       return {
         ...debt,
+        current_balance: totalBalance,
+        no_interest_payment: noInterestPayment,
+        msi_monthly_sum: msiMonthlySum,
+        msi_remaining_total: msiRemainingTotal,
+        revolving_balance: revolvingBalance,
         msi_plans: msi
       };
     });
@@ -647,6 +676,55 @@ app.post('/api/debts', async (req, res) => {
     );
 
     res.json({ success: true, debt_id: result.lastID, message: 'Deuda registrada exitosamente.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/debts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, current_balance, min_payment, no_interest_payment, cutoff_date, due_date, interest_rate } = req.body;
+
+    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
+    if (!debt) return res.status(404).json({ error: 'Deuda no encontrada.' });
+
+    const newName = name !== undefined ? name : debt.name;
+    const newBalance = current_balance !== undefined ? parseFloat(current_balance) : debt.current_balance;
+    const newMin = min_payment !== undefined ? parseFloat(min_payment) : debt.min_payment;
+    const newNoInt = no_interest_payment !== undefined ? parseFloat(no_interest_payment) : debt.no_interest_payment;
+    const newCutoff = cutoff_date !== undefined ? cutoff_date : debt.cutoff_date;
+    const newDue = due_date !== undefined ? due_date : debt.due_date;
+    const newRate = interest_rate !== undefined ? parseFloat(interest_rate) : debt.interest_rate;
+
+    await dbRun(
+      `UPDATE debts SET 
+        name = ?, 
+        current_balance = ?, 
+        min_payment = ?, 
+        no_interest_payment = ?, 
+        cutoff_date = ?, 
+        due_date = ?, 
+        interest_rate = ? 
+       WHERE id = ?`,
+      [newName, newBalance, newMin, newNoInt, newCutoff, newDue, newRate, id]
+    );
+
+    // Also update corresponding account in accounts table if exists
+    const acc = await dbGet("SELECT * FROM accounts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${debt.name.toLowerCase()}%`, debt.name.toLowerCase()]);
+    if (acc) {
+      const creditLimit = parseFloat(acc.credit_limit || 0);
+      const newAvail = creditLimit > 0 ? Math.max(0, creditLimit - newBalance) : acc.available_credit;
+      await dbRun(
+        `UPDATE accounts SET 
+          name = ?, balance = ?, available_credit = ?, min_payment = ?, no_interest_payment = ?, cutoff_date = ?, due_date = ?, interest_rate = ?
+         WHERE id = ?`,
+        [newName, newBalance, newAvail, newMin, newNoInt, newCutoff, newDue, newRate, acc.id]
+      );
+    }
+
+    await syncCreditCardsAndDebts();
+    res.json({ success: true, message: 'Deuda / Tarjeta actualizada correctamente.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -737,29 +815,92 @@ app.delete('/api/installment-plans/:id', async (req, res) => {
   try {
     const { id } = req.params;
     await dbRun('DELETE FROM installment_plans WHERE id = ?', [id]);
+    await syncCreditCardsAndDebts();
     res.json({ success: true, message: 'Plan a Meses Sin Intereses eliminado.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-
 app.post('/api/installment-plans', async (req, res) => {
   try {
-    const { debt_id, account_id, concept, total_amount, monthly_amount, installments_total, installments_paid = 0 } = req.body;
-    if (!concept || !total_amount || !monthly_amount || !installments_total) {
-      return res.status(400).json({ error: 'Datos requeridos del plan de MSI incompletos.' });
+    let { debt_id, account_id, concept, total_amount, monthly_amount, installments_total, installments_paid = 0 } = req.body;
+    
+    const numMonthly = parseFloat(monthly_amount || 0);
+    const numTotalMonths = parseInt(installments_total || 12, 10);
+    const numPaidMonths = parseInt(installments_paid || 0, 10);
+    const numTotalAmount = parseFloat(total_amount || (numMonthly * numTotalMonths));
+
+    if (!concept || numMonthly <= 0 || numTotalMonths <= 0) {
+      return res.status(400).json({ error: 'Concepto, pago mensual y plazo total son requeridos.' });
     }
 
-    const remainingBalance = parseFloat(total_amount) - (parseFloat(monthly_amount) * parseInt(installments_paid, 10));
+    // Try linking account_id and debt_id if only one was supplied
+    if (account_id && !debt_id) {
+      const acc = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
+      if (acc) {
+        const debt = await dbGet("SELECT * FROM debts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${acc.name.toLowerCase()}%`, acc.name]);
+        if (debt) debt_id = debt.id;
+      }
+    } else if (debt_id && !account_id) {
+      const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [debt_id]);
+      if (debt) {
+        const acc = await dbGet("SELECT * FROM accounts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${debt.name.toLowerCase()}%`, debt.name]);
+        if (acc) account_id = acc.id;
+      }
+    }
+
+    const remainingInst = Math.max(0, numTotalMonths - numPaidMonths);
+    const remainingBalance = numMonthly * remainingInst;
 
     const result = await dbRun(
       `INSERT INTO installment_plans (debt_id, account_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [debt_id || null, account_id || null, concept, parseFloat(total_amount), parseFloat(monthly_amount), parseInt(installments_total, 10), parseInt(installments_paid, 10), Math.max(0, remainingBalance)]
+      [debt_id || null, account_id || null, concept, numTotalAmount, numMonthly, numTotalMonths, numPaidMonths, remainingBalance]
     );
 
+    await syncCreditCardsAndDebts();
+
     res.json({ success: true, plan_id: result.lastID, message: 'Plan a Meses Sin Intereses registrado.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/installment-plans/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let { concept, monthly_amount, total_amount, installments_total, installments_paid, account_id, debt_id } = req.body;
+
+    const plan = await dbGet('SELECT * FROM installment_plans WHERE id = ?', [id]);
+    if (!plan) return res.status(404).json({ error: 'Plan de MSI no encontrado.' });
+
+    const newConcept = concept !== undefined ? concept : plan.concept;
+    const numMonthly = monthly_amount !== undefined ? parseFloat(monthly_amount) : plan.monthly_amount;
+    const numTotalMonths = installments_total !== undefined ? parseInt(installments_total, 10) : plan.installments_total;
+    const numPaidMonths = installments_paid !== undefined ? parseInt(installments_paid, 10) : plan.installments_paid;
+    const numTotalAmount = total_amount !== undefined ? parseFloat(total_amount) : (numMonthly * numTotalMonths);
+
+    const remainingInst = Math.max(0, numTotalMonths - numPaidMonths);
+    const remainingBalance = numMonthly * remainingInst;
+
+    await dbRun(
+      `UPDATE installment_plans SET
+        concept = ?,
+        monthly_amount = ?,
+        total_amount = ?,
+        installments_total = ?,
+        installments_paid = ?,
+        remaining_balance = ?,
+        account_id = COALESCE(?, account_id),
+        debt_id = COALESCE(?, debt_id)
+       WHERE id = ?`,
+      [newConcept, numMonthly, numTotalAmount, numTotalMonths, numPaidMonths, remainingBalance, account_id || null, debt_id || null, id]
+    );
+
+    await syncCreditCardsAndDebts();
+
+    res.json({ success: true, message: 'Plan a Meses Sin Intereses actualizado.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

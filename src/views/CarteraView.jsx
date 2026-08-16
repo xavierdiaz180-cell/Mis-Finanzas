@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check, Sparkles } from 'lucide-react';
+import { Wallet, Plus, CreditCard, Banknote, Landmark, ArrowUpRight, ArrowDownRight, History, X, Trash2, Edit3, Check, Sparkles, Settings, ShoppingBag } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
+import MSIConfigModal from '../components/MSIConfigModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
 
@@ -10,6 +11,7 @@ export default function CarteraView({ onRefresh, hideValues = false }) {
   const [accountDetails, setAccountDetails] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDocScanner, setShowDocScanner] = useState(false);
+  const [msiModalAccount, setMsiModalAccount] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editName, setEditName] = useState('');
   const [editBalance, setEditBalance] = useState('');
@@ -219,22 +221,52 @@ export default function CarteraView({ onRefresh, hideValues = false }) {
                   </span>
                 </div>
               </div>
+
+              {acc.type === 'credit_card' && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setMsiModalAccount(acc); }}
+                  style={{
+                    background: 'rgba(139, 92, 246, 0.15)',
+                    border: '1px solid rgba(139, 92, 246, 0.3)',
+                    color: '#a78bfa',
+                    borderRadius: '6px',
+                    padding: '0.35rem 0.65rem',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  <Settings size={14} /> Configurar MSI
+                </button>
+              )}
             </div>
 
             {acc.type === 'credit_card' ? (
               <div>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Crédito Disponible:</span>
-                <div style={{ fontSize: '1.6rem', fontWeight: '700', color: '#a78bfa' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#a78bfa' }}>
                   {formatMoney(acc.available_credit || 0, hideValues)}
                 </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                  Límite total: {formatMoney(acc.credit_limit, hideValues)} | Deuda Total: {formatMoney(acc.total_debt || 0, hideValues)}
+                
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                  Saldo Deudor Total: <strong>{formatMoney(acc.total_debt || acc.balance || 0, hideValues)}</strong> | Límite: {formatMoney(acc.credit_limit, hideValues)}
                 </div>
-                {acc.msi_pending > 0 && (
-                  <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginTop: '0.3rem', background: 'rgba(251, 191, 36, 0.08)', padding: '0.35rem 0.5rem', borderRadius: '4px', border: '1px dashed rgba(251, 191, 36, 0.3)' }}>
-                    Revolvente: {formatMoney(acc.balance || 0, hideValues)} + MSI: {formatMoney(acc.msi_pending, hideValues)}
+
+                <div style={{ marginTop: '0.5rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '0.45rem 0.6rem', borderRadius: '6px' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#6ee7b7', fontWeight: '600' }}>Pago p/ No Generar Intereses:</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: '700', color: '#10b981' }}>
+                    {formatMoney(acc.no_interest_payment || acc.total_debt || 0, hideValues)}
                   </div>
-                )}
+                  {acc.msi_plans && acc.msi_plans.length > 0 && (
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                      ({formatMoney(acc.msi_monthly_sum || 0, hideValues)} MSI del mes + {formatMoney(acc.revolving_balance || 0, hideValues)} 1 solo pago)
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
 
@@ -248,6 +280,19 @@ export default function CarteraView({ onRefresh, hideValues = false }) {
           </div>
         ))}
       </div>
+
+      {/* MSI Configuration Modal */}
+      {msiModalAccount && (
+        <MSIConfigModal
+          item={msiModalAccount}
+          isDebt={false}
+          onClose={() => setMsiModalAccount(null)}
+          onSaved={() => {
+            loadAccounts();
+            if (onRefresh) onRefresh();
+          }}
+        />
+      )}
 
       {/* Account Details Drawer Modal */}
       {selectedAccount && accountDetails && (
