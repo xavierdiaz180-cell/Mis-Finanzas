@@ -114,14 +114,33 @@ async function syncCreditCardsAndDebts() {
       }
     }
 
+    // Deduplicate any duplicate credit card debt records that share the same account_id or name
+    await dbRun(`
+      DELETE FROM debts 
+      WHERE id IN (
+        SELECT d1.id 
+        FROM debts d1
+        INNER JOIN debts d2 ON (
+          (d1.account_id IS NOT NULL AND d1.account_id = d2.account_id) OR
+          (d1.account_id IS NULL AND d2.account_id IS NULL AND LOWER(d1.name) = LOWER(d2.name))
+        )
+        WHERE d1.type = 'credit_card' AND d2.type = 'credit_card' AND d1.id < d2.id
+      )
+    `).catch(() => {});
+
     // 1. Sync accounts to debts considering Cutoff Dates and MSI Monthly Installments
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
     for (const acc of creditAccounts) {
       const matchingDebt = await dbGet(
-        "SELECT * FROM debts WHERE account_id = ? OR (type = 'credit_card' AND id = ?)",
-        [acc.id, acc.id]
+        "SELECT * FROM debts WHERE account_id = ? OR (type = 'credit_card' AND LOWER(name) = LOWER(?))",
+        [acc.id, acc.name]
       );
       const debtId = matchingDebt ? matchingDebt.id : null;
+
+      // Link account_id if matching debt exists but lacked account_id
+      if (matchingDebt && !matchingDebt.account_id) {
+        await dbRun("UPDATE debts SET account_id = ? WHERE id = ?", [acc.id, matchingDebt.id]);
+      }
 
       const rawCutoff = acc.cutoff_date || (matchingDebt ? matchingDebt.cutoff_date : null);
       const cutoffThreshold = getCutoffDateThreshold(rawCutoff);
@@ -168,14 +187,15 @@ async function syncCreditCardsAndDebts() {
             no_interest_payment = ?,
             cutoff_date = ?,
             due_date = ?,
-            interest_rate = ?
+            interest_rate = ?,
+            account_id = ?
            WHERE id = ?`,
-          [newAccBalance, minPayment, calculatedNoInterest, cutoffDate, dueDate, interestRate, matchingDebt.id]
+          [newAccBalance, minPayment, calculatedNoInterest, cutoffDate, dueDate, interestRate, acc.id, matchingDebt.id]
         );
       } else {
         await dbRun(
-          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date)
-           VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date, account_id)
+           VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             acc.name,
             creditLimit,
@@ -185,7 +205,8 @@ async function syncCreditCardsAndDebts() {
             calculatedNoInterest,
             acc.interest_rate || 0,
             acc.due_date,
-            acc.cutoff_date
+            acc.cutoff_date,
+            acc.id
           ]
         );
       }
