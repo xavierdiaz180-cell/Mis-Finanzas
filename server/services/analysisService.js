@@ -62,28 +62,16 @@ async function getFullAnalysisData() {
   let projectedRecurringTotal = 0;
   const forecastItems = [];
 
-  // Add recurring expenses projected for next 30 days
   recurringExpenses.forEach(r => {
-    let multiplier = 1;
-    if (r.frequency === 'weekly') multiplier = 4;
-    else if (r.frequency === 'biweekly') multiplier = 2;
-    else if (r.frequency === 'monthly') multiplier = 1;
-    else if (r.frequency === 'bimonthly') multiplier = 0.5;
-    else if (r.frequency === 'yearly') multiplier = 1 / 12;
-
-    const projectedAmount = r.amount * multiplier;
-    projectedRecurringTotal += projectedAmount;
-
+    projectedRecurringTotal += r.amount;
     forecastItems.push({
       concept: r.concept,
       category: r.category,
       type: 'Gasto Recurrente',
-      frequency: r.frequency,
-      monthly_amount: projectedAmount
+      monthly_amount: r.amount
     });
   });
 
-  // Add Debt Monthly Payments
   debts.forEach(d => {
     projectedRecurringTotal += d.payment_amount;
     forecastItems.push({
@@ -94,7 +82,6 @@ async function getFullAnalysisData() {
     });
   });
 
-  // Add MSI Plans
   msiPlans.forEach(m => {
     projectedRecurringTotal += m.monthly_amount;
     forecastItems.push({
@@ -105,7 +92,6 @@ async function getFullAnalysisData() {
     });
   });
 
-  // Financial Metrics snapshot for evolution trend
   const currentMetrics = await calculateFinancialMetrics();
 
   return {
@@ -127,6 +113,84 @@ async function getFullAnalysisData() {
   };
 }
 
+/**
+ * Calculates complete chart datasets (investments, monthly flows, category breakdown, balance timeline)
+ */
+async function getChartsData() {
+  const investments = await dbAll('SELECT * FROM investments ORDER BY last_update ASC');
+
+  const expensesByCategory = await dbAll(`
+    SELECT category, SUM(amount) as total, COUNT(*) as count
+    FROM transactions
+    WHERE type = 'expense'
+      AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
+    GROUP BY category
+    ORDER BY total DESC
+  `);
+
+  const monthlyFlow = await dbAll(`
+    SELECT 
+      LEFT(date, 7) as month,
+      SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses,
+      SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net
+    FROM transactions
+    WHERE type IN ('income','expense')
+      AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
+    GROUP BY LEFT(date, 7)
+    ORDER BY month ASC
+  `);
+
+  const dailyTransactions = await dbAll(`
+    SELECT 
+      date,
+      SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses
+    FROM transactions
+    WHERE type IN ('income','expense')
+      AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')
+    GROUP BY date
+    ORDER BY date ASC
+  `);
+
+  let cumulativeBalance = 0;
+  const balanceTimeline = dailyTransactions.map(day => {
+    cumulativeBalance += (parseFloat(day.income) || 0) - (parseFloat(day.expenses) || 0);
+    return {
+      date: day.date,
+      balance: parseFloat(cumulativeBalance.toFixed(2)),
+      income: parseFloat(day.income) || 0,
+      expenses: parseFloat(day.expenses) || 0
+    };
+  });
+
+  const investmentTimeline = investments.map(inv => ({
+    name: inv.name,
+    invested: parseFloat(inv.capital_contributed || inv.invested_amount || 0),
+    current: parseFloat(inv.current_value || inv.current_documented_value || 0),
+    gainLoss: (parseFloat(inv.current_value || inv.current_documented_value || 0)) - (parseFloat(inv.capital_contributed || inv.invested_amount || 0)),
+    returnPct: inv.invested_amount > 0
+      ? parseFloat((((inv.current_documented_value - inv.invested_amount) / inv.invested_amount) * 100).toFixed(2))
+      : 0,
+    lastUpdate: inv.last_update || 'Sin actualizar',
+    riskLevel: inv.risk_level
+  }));
+
+  const totalInvested = investmentTimeline.reduce((s, i) => s + i.invested, 0);
+  const totalCurrentValue = investmentTimeline.reduce((s, i) => s + i.current, 0);
+  const totalReturn = totalCurrentValue - totalInvested;
+  const totalReturnPct = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : 0;
+
+  return {
+    investmentTimeline,
+    investmentSummary: { totalInvested, totalCurrentValue, totalReturn, totalReturnPct: parseFloat(totalReturnPct) },
+    expensesByCategory,
+    monthlyFlow,
+    balanceTimeline
+  };
+}
+
 module.exports = {
-  getFullAnalysisData
+  getFullAnalysisData,
+  getChartsData
 };

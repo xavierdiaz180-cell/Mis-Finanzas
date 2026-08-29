@@ -376,6 +376,118 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
   });
 }
 
+/**
+ * Queries transactions with dynamic filters
+ */
+async function getTransactions(filters = {}) {
+  const { dbAll } = require('../database');
+  const { type, category, account_id, concept, start_date, end_date } = filters;
+  let sql = 'SELECT t.*, a.name as account_name FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE 1=1';
+  const params = [];
+
+  if (type && type !== 'all') {
+    sql += ' AND t.type = ?';
+    params.push(type);
+  }
+  if (category) {
+    sql += ' AND t.category = ?';
+    params.push(category);
+  }
+  if (account_id) {
+    sql += ' AND t.account_id = ?';
+    params.push(account_id);
+  }
+  if (concept) {
+    sql += ' AND t.concept LIKE ?';
+    params.push(`%${concept}%`);
+  }
+  if (start_date) {
+    sql += ' AND t.date >= ?';
+    params.push(start_date);
+  }
+  if (end_date) {
+    sql += ' AND t.date <= ?';
+    params.push(end_date);
+  }
+
+  sql += ' ORDER BY t.date DESC, t.id DESC';
+  return await dbAll(sql, params);
+}
+
+/**
+ * Unified transaction router replacing processTransaction
+ */
+async function processGenericTransaction(data) {
+  const { type, account_id, destination_account_id, source_account_id, credit_card_id, investment_id, amount, concept, category, is_msi, msi_months, date } = data;
+  const srcId = source_account_id || account_id;
+  const dstId = destination_account_id || account_id;
+
+  if (type === 'income') {
+    return await executeIncome({ destination_account_id: dstId, amount, concept, category, date });
+  } else if (type === 'expense') {
+    return await executeExpense({ source_account_id: srcId, amount, concept, category, date });
+  } else if (type === 'transfer') {
+    return await executeTransfer({ source_account_id: srcId, destination_account_id: dstId, amount, concept, date });
+  } else if (type === 'card_purchase') {
+    return await executeCardPurchase({ credit_card_id: credit_card_id || srcId, amount, concept, category, is_msi, msi_months, date });
+  } else if (type === 'card_payment' || type === 'payment') {
+    return await executeCardPayment({ source_account_id: srcId, credit_card_id: credit_card_id || dstId, amount, concept, date });
+  } else if (type === 'investment_contribution' || type === 'investment_deposit') {
+    return await executeInvestmentContribution({ source_account_id: srcId, investment_id, amount, concept, date });
+  } else if (type === 'investment_withdrawal') {
+    return await executeInvestmentWithdrawal({ investment_id, destination_account_id: dstId, amount, concept, date });
+  } else {
+    // Fallback default expense
+    return await executeExpense({ source_account_id: srcId, amount, concept, category, date });
+  }
+}
+
+/**
+ * Reverts a transaction safely within a PostgreSQL ACID transaction
+ */
+async function deleteTransactionSafely(transactionId) {
+  return await withTransaction(async (client) => {
+    const txRes = await client.query('SELECT * FROM transactions WHERE id = $1 FOR UPDATE', [transactionId]);
+    const tx = txRes.rows[0];
+    if (!tx) throw new Error('Transacción no encontrada.');
+
+    const amount = parseFloat(tx.amount || 0);
+
+    if (tx.type === 'income' && tx.destination_account_id) {
+      await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+      await client.query('DELETE FROM incomes WHERE account_id = $1 AND amount = $2 AND date = $3', [tx.destination_account_id, amount, tx.date]);
+    } else if (tx.type === 'expense' && tx.source_account_id) {
+      await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+    } else if (tx.type === 'transfer' && tx.source_account_id && tx.destination_account_id) {
+      await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+      await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+    }
+
+    await client.query('DELETE FROM transactions WHERE id = $1', [transactionId]);
+    return { success: true, message: 'Transacción eliminada y saldo revertido correctamente.' };
+  });
+}
+
+/**
+ * Deletes an account safely with strict child-table cascade order in an ACID transaction
+ */
+async function deleteAccountSafely(accountId) {
+  return await withTransaction(async (client) => {
+    const accRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+    const acc = accRes.rows[0];
+    if (!acc) throw new Error('Cuenta no encontrada.');
+
+    // Delete child records first in strict FK order
+    await client.query('DELETE FROM installment_plans WHERE account_id = $1 OR credit_card_id = $1', [accountId]);
+    await client.query('DELETE FROM debts WHERE account_id = $1 OR (type = \'credit_card\' AND id = $1)', [accountId]);
+    await client.query('DELETE FROM incomes WHERE account_id = $1', [accountId]);
+    await client.query('DELETE FROM transactions WHERE account_id = $1 OR source_account_id = $1 OR destination_account_id = $1', [accountId]);
+    await client.query('DELETE FROM accounts WHERE id = $1', [accountId]);
+
+    return { success: true, message: 'Cuenta y sus registros dependientes eliminados de forma segura.' };
+  });
+}
+
 module.exports = {
   withTransaction,
   executeIncome,
@@ -385,5 +497,9 @@ module.exports = {
   executeCardPayment,
   executeInvestmentContribution,
   executeInvestmentWithdrawal,
-  executeInvestmentValuation
+  executeInvestmentValuation,
+  getTransactions,
+  processGenericTransaction,
+  deleteTransactionSafely,
+  deleteAccountSafely
 };

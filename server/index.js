@@ -15,7 +15,7 @@ const financialController = require('./controllers/financialController');
 // Auxiliary Services
 const { parseVoiceDictation, analyzeDocument } = require('./services/geminiService');
 const { generateCoachChatResponse, getCoachRecommendations, generateDeepAnalysis } = require('./services/coachService');
-const { getFullAnalysisData } = require('./services/analysisService');
+const { getFullAnalysisData, getChartsData } = require('./services/analysisService');
 
 dotenv.config();
 
@@ -135,77 +135,8 @@ app.delete('/api/investments/:id', investmentController.deleteInvestment);
 // CHARTS DATA API
 app.get('/api/charts/data', async (req, res) => {
   try {
-    const investments = await dbAll('SELECT * FROM investments ORDER BY last_update ASC');
-
-    const expensesByCategory = await dbAll(`
-      SELECT category, SUM(amount) as total, COUNT(*) as count
-      FROM transactions
-      WHERE type = 'expense'
-        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
-      GROUP BY category
-      ORDER BY total DESC
-    `);
-
-    const monthlyFlow = await dbAll(`
-      SELECT 
-        LEFT(date, 7) as month,
-        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses,
-        SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net
-      FROM transactions
-      WHERE type IN ('income','expense')
-        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
-      GROUP BY LEFT(date, 7)
-      ORDER BY month ASC
-    `);
-
-    const dailyTransactions = await dbAll(`
-      SELECT 
-        date,
-        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses
-      FROM transactions
-      WHERE type IN ('income','expense')
-        AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')
-      GROUP BY date
-      ORDER BY date ASC
-    `);
-
-    let cumulativeBalance = 0;
-    const balanceTimeline = dailyTransactions.map(day => {
-      cumulativeBalance += (parseFloat(day.income) || 0) - (parseFloat(day.expenses) || 0);
-      return {
-        date: day.date,
-        balance: parseFloat(cumulativeBalance.toFixed(2)),
-        income: parseFloat(day.income) || 0,
-        expenses: parseFloat(day.expenses) || 0
-      };
-    });
-
-    const investmentTimeline = investments.map(inv => ({
-      name: inv.name,
-      invested: parseFloat(inv.capital_contributed || inv.invested_amount || 0),
-      current: parseFloat(inv.current_value || inv.current_documented_value || 0),
-      gainLoss: (parseFloat(inv.current_value || inv.current_documented_value || 0)) - (parseFloat(inv.capital_contributed || inv.invested_amount || 0)),
-      returnPct: inv.invested_amount > 0
-        ? parseFloat((((inv.current_documented_value - inv.invested_amount) / inv.invested_amount) * 100).toFixed(2))
-        : 0,
-      lastUpdate: inv.last_update || 'Sin actualizar',
-      riskLevel: inv.risk_level
-    }));
-
-    const totalInvested = investmentTimeline.reduce((s, i) => s + i.invested, 0);
-    const totalCurrentValue = investmentTimeline.reduce((s, i) => s + i.current, 0);
-    const totalReturn = totalCurrentValue - totalInvested;
-    const totalReturnPct = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : 0;
-
-    res.json({
-      investmentTimeline,
-      investmentSummary: { totalInvested, totalCurrentValue, totalReturn, totalReturnPct: parseFloat(totalReturnPct) },
-      expensesByCategory,
-      monthlyFlow,
-      balanceTimeline
-    });
+    const data = await getChartsData();
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

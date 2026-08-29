@@ -62,6 +62,50 @@ async function registerExistingMSI({
   }
 }
 
+/**
+ * Enriches credit card accounts with calculated MSI, revolving balances, and no-interest payments
+ */
+async function enrichAccountsWithMSIData(accounts = []) {
+  const installmentPlans = await dbAll('SELECT * FROM installment_plans');
+  const debts = await dbAll('SELECT * FROM debts');
+
+  return accounts.map(acc => {
+    if (acc.type === 'credit_card') {
+      const matchingDebts = debts.filter(d => d.account_id === acc.id || d.id === acc.id);
+      const debtIds = matchingDebts.map(d => d.id);
+
+      const msiPlans = installmentPlans.filter(p => p.account_id === acc.id || debtIds.includes(p.debt_id));
+      const activeMsiPlans = msiPlans.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
+
+      const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
+      const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
+        const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
+        return sum + (parseFloat(p.monthly_amount) * remInst);
+      }, 0);
+
+      const totalDebt = parseFloat(acc.balance || 0);
+      const revolvingBalance = Math.max(0, totalDebt - msiRemainingTotal);
+      const noInterestPayment = activeMsiPlans.length > 0 ? (msiMonthlySum + revolvingBalance) : (parseFloat(acc.no_interest_payment) || totalDebt);
+      const available = acc.credit_limit > 0 ? Math.max(0, acc.credit_limit - totalDebt) : acc.available_credit;
+
+      return {
+        ...acc,
+        balance: totalDebt,
+        total_debt: totalDebt,
+        available_credit: available,
+        msi_pending: msiRemainingTotal,
+        msi_monthly_sum: msiMonthlySum,
+        msi_remaining_total: msiRemainingTotal,
+        revolving_balance: revolvingBalance,
+        no_interest_payment: noInterestPayment,
+        msi_plans: msiPlans
+      };
+    }
+    return acc;
+  });
+}
+
 module.exports = {
-  registerExistingMSI
+  registerExistingMSI,
+  enrichAccountsWithMSIData
 };
