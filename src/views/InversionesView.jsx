@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PiggyBank, Plus, ArrowUpRight, ArrowDownRight, ShieldAlert, ShieldCheck, Shield, RefreshCw, X, Landmark, Trash2 } from 'lucide-react';
+import { PiggyBank, Plus, ArrowUpRight, ArrowDownRight, ShieldAlert, ShieldCheck, Shield, RefreshCw, X, Landmark, Trash2, CheckCircle2, Lock } from 'lucide-react';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
 
@@ -17,6 +17,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
   const [investedAmount, setInvestedAmount] = useState('');
   const [documentedValue, setDocumentedValue] = useState('');
   const [riskLevel, setRiskLevel] = useState('medium');
+  const [isLiquid, setIsLiquid] = useState(true);
 
   // Operation states
   const [opAccountId, setOpAccountId] = useState('');
@@ -44,14 +45,16 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
     e.preventDefault();
     if (!name) return alert('Ingresa un nombre para la inversión.');
 
-    fetch('/api/investments', {
+    fetch(`${API_BASE}/api/investments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
         invested_amount: parseFloat(investedAmount || 0),
         current_documented_value: parseFloat(documentedValue || investedAmount || 0),
-        risk_level: riskLevel
+        risk_level: riskLevel,
+        is_liquid: isLiquid,
+        liquidity_status: isLiquid ? 'LIQUIDA' : 'NO_LIQUIDA'
       })
     })
       .then(res => res.json())
@@ -60,6 +63,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
         setName('');
         setInvestedAmount('');
         setDocumentedValue('');
+        setIsLiquid(true);
         loadData();
         if (onRefresh) onRefresh();
       })
@@ -70,7 +74,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
     e.preventDefault();
     if (!selectedInvestment || opAmount === '') return;
 
-    fetch(`/api/investments/${selectedInvestment.id}/update-value`, {
+    fetch(`${API_BASE}/api/investments/${selectedInvestment.id}/update-value`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ current_documented_value: parseFloat(opAmount) })
@@ -90,7 +94,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
     e.preventDefault();
     if (!selectedInvestment || !opAmount || !opAccountId) return;
 
-    fetch(`/api/investments/${selectedInvestment.id}/deposit`, {
+    fetch(`${API_BASE}/api/investments/${selectedInvestment.id}/deposit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -113,7 +117,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
     e.preventDefault();
     if (!selectedInvestment || !opAmount || !opAccountId) return;
 
-    fetch(`/api/investments/${selectedInvestment.id}/withdraw`, {
+    fetch(`${API_BASE}/api/investments/${selectedInvestment.id}/withdraw`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -158,8 +162,8 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
     }
   };
 
-  const totalPortfolioValue = investments.reduce((acc, i) => acc + (i.current_documented_value || 0), 0);
-  const totalInvested = investments.reduce((acc, i) => acc + (i.invested_amount || 0), 0);
+  const totalPortfolioValue = investments.reduce((acc, i) => acc + (parseFloat(i.current_documented_value || i.current_value) || 0), 0);
+  const totalInvested = investments.reduce((acc, i) => acc + (parseFloat(i.invested_amount || i.capital_contributed) || 0), 0);
   const totalGainLoss = totalPortfolioValue - totalInvested;
 
   return (
@@ -172,7 +176,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
             <PiggyBank size={24} /> Portafolio de Inversiones
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-            Las inversiones participan en tu Riqueza Neta y Análisis (excluidas de Cartera de liquidez).
+            Las inversiones participan en tu Riqueza Neta y Análisis. Las marcadas como Líquidas alimentan tu Dinero Gastable (`spendableMoney`).
           </p>
         </div>
 
@@ -217,81 +221,93 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
             <p style={{ color: 'var(--text-secondary)' }}>No tienes inversiones registradas. Registra tu primera inversión en el botón superior.</p>
           </div>
         ) : (
-          investments.map(inv => (
-            <div key={inv.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '1rem' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: '600' }}>{inv.name}</h3>
-                  {getRiskBadge(inv.risk_level)}
-                </div>
+          investments.map(inv => {
+            const isLiq = inv.is_liquid !== false && inv.liquidity_status !== 'NO_LIQUIDA';
+            const curVal = parseFloat(inv.current_documented_value || inv.current_value || 0);
+            const invCap = parseFloat(inv.invested_amount || inv.capital_contributed || 0);
+            const diff = curVal - invCap;
 
-                <div style={{ margin: '0.75rem 0' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Valor Documentado Actual:</span>
-                  <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#34d399' }}>
-                    {formatMoney(inv.current_documented_value, hideValues)}
+            return (
+              <div key={inv.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '1rem' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: '600' }}>{inv.name}</h3>
+                      <div style={{ marginTop: '0.25rem' }}>
+                        {isLiq ? (
+                          <span className="badge badge-success" style={{ fontSize: '0.7rem' }}><CheckCircle2 size={11} /> Disponible Inmediatamente (Líquida)</span>
+                        ) : (
+                          <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}><Lock size={11} /> Bloqueada a Plazo (No Líquida)</span>
+                        )}
+                      </div>
+                    </div>
+                    {getRiskBadge(inv.risk_level)}
+                  </div>
+
+                  <div style={{ margin: '0.75rem 0' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Valor Documentado Actual:</span>
+                    <div style={{ fontSize: '1.8rem', fontWeight: '700', color: '#34d399' }}>
+                      {formatMoney(curVal, hideValues)}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)' }}>
+                    <span>Invertido: {formatMoney(invCap, hideValues)}</span>
+                    <span style={{ color: diff >= 0 ? '#34d399' : '#f43f5e', fontWeight: '600' }}>
+                      {formatMoney(diff, hideValues)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                    Última actualización: {inv.last_update || 'Reciente'}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.03)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)' }}>
-                  <span>Invertido: {formatMoney(inv.invested_amount, hideValues)}</span>
-                  <span style={{ color: inv.profit_loss >= 0 ? '#34d399' : '#f43f5e', fontWeight: '600' }}>
-                    {formatMoney(inv.profit_loss, hideValues)} ({inv.profit_loss_percentage.toFixed(1)}%)
-                  </span>
+                {/* Action buttons */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
+                  <button 
+                    onClick={() => { setSelectedInvestment(inv); setModalType('deposit'); setOpAmount(''); }}
+                    style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
+                  >
+                    <ArrowUpRight size={14} /> Invertir
+                  </button>
+
+                  <button 
+                    onClick={() => { setSelectedInvestment(inv); setModalType('withdraw'); setOpAmount(''); }}
+                    style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)', color: '#f43f5e', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
+                  >
+                    <ArrowDownRight size={14} /> Retirar
+                  </button>
+
+                  <button 
+                    onClick={() => { setSelectedInvestment(inv); setModalType('update_value'); setOpAmount(curVal); }}
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
+                  >
+                    <RefreshCw size={14} /> Actualizar
+                  </button>
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-                  Última actualización: {inv.last_update || 'Reciente'}
-                </div>
-              </div>
 
-              {/* Action buttons */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
-                <button 
-                  onClick={() => { setSelectedInvestment(inv); setModalType('deposit'); setOpAmount(''); }}
-                  style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
+                <button
+                  onClick={() => handleDeleteInvestment(inv)}
+                  style={{
+                    width: '100%',
+                    background: 'rgba(244,63,94,0.08)',
+                    border: '1px solid rgba(244,63,94,0.25)',
+                    color: '#f87171',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '0.4rem',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem'
+                  }}
                 >
-                  <ArrowUpRight size={14} /> Invertir
-                </button>
-
-                <button 
-                  onClick={() => { setSelectedInvestment(inv); setModalType('withdraw'); setOpAmount(''); }}
-                  style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)', color: '#f43f5e', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
-                >
-                  <ArrowDownRight size={14} /> Retirar
-                </button>
-
-                <button 
-                  onClick={() => { setSelectedInvestment(inv); setModalType('update_value'); setOpAmount(inv.current_documented_value); }}
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', padding: '0.45rem', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}
-                >
-                  <RefreshCw size={14} /> Actualizar
+                  <Trash2 size={13} /> Eliminar Inversión
                 </button>
               </div>
-
-              {/* Delete button */}
-              <button
-                onClick={() => handleDeleteInvestment(inv)}
-                style={{
-                  width: '100%',
-                  background: 'rgba(244,63,94,0.08)',
-                  border: '1px solid rgba(244,63,94,0.25)',
-                  color: '#f87171',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '0.4rem',
-                  fontSize: '0.78rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.35rem',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(244,63,94,0.2)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(244,63,94,0.08)'}
-              >
-                <Trash2 size={13} /> Eliminar Inversión
-              </button>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -307,7 +323,7 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
             <form onSubmit={handleCreateInvestment} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Nombre de la Inversión:</label>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ej. CETES Directo, Nu 15%, GBM+ Index" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} required />
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ej. CETES Directo, Nu 15%, Fondo Fintual" style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }} required />
               </div>
 
               <div>
@@ -321,7 +337,15 @@ export default function InversionesView({ onRefresh, hideValues = false }) {
               </div>
 
               <div>
-                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Nivel de Riesgo (Definido por Usuario):</label>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Disponibilidad de Retiro (Disponibilidad Inmediata):</label>
+                <select value={isLiquid ? 'true' : 'false'} onChange={e => setIsLiquid(e.target.value === 'true')} style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}>
+                  <option value="true">Disponibilidad Inmediata (Suma a Dinero Gastable)</option>
+                  <option value="false">Bloqueada a Plazo (Excluida de Dinero Gastable)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>Nivel de Riesgo:</label>
                 <select value={riskLevel} onChange={e => setRiskLevel(e.target.value)} style={{ width: '100%', padding: '0.65rem', borderRadius: 'var(--radius-sm)', background: '#121a2b', border: '1px solid var(--border-subtle)', color: 'white' }}>
                   <option value="low">Bajo (Ej. CETES, Sofipos)</option>
                   <option value="medium">Medio (Ej. Fibras, Deuda Corporativa)</option>

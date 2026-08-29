@@ -66,19 +66,19 @@ export default function App() {
       <div className="phase-banner">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-            <span className="badge badge-success">MVP Completo & Fase 7 Finalizada</span>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Mis Finanzas - Aplicación Financiera Personal con IA Gemini</h3>
+            <span className="badge badge-success">Mis Finanzas V2</span>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Mis Finanzas V2 — Motor Financiero Unificado y Aprobado</h3>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-            Todos los 7 módulos y criterios de aceptación del MVP están 100% construidos, probados y verificados.
+            Servicios atómicos atados a PostgreSQL, fuente de verdad única de métricas y reconciliación patrimonial.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <span className="badge badge-info">
-            <Server size={14} /> Fullstack Ready
+            <Server size={14} /> Domain Services V2
           </span>
           <span className="badge badge-success">
-            <Database size={14} /> SQLite Persisted
+            <Database size={14} /> PostgreSQL ACID
           </span>
         </div>
       </div>
