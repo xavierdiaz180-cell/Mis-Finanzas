@@ -1,18 +1,19 @@
 const { dbAll, dbGet } = require('../database');
 const { calculateFinancialMetrics } = require('./financialRules');
 const { enrichAccountsWithMSIData } = require('./creditCardService');
+const budgetingService = require('./budgetingService');
 
 /**
  * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2 (Phase 3.3)
  */
 
 async function getSummaryMetrics() {
-  const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1');
+  const accounts = await dbAll("SELECT * FROM accounts WHERE (active = 1 OR active IS TRUE OR active IS NULL)");
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
-  // 1. LIQUID MONEY (Nómina, Débito, Efectivo, Ahorro - excludes credit cards)
+  // 1. LIQUID MONEY (Nómina, Débito, Efectivo, Ahorro - excludes credit cards and loans)
   const liquidMoney = enrichedAccounts
-    .filter(a => a.type !== 'credit_card')
+    .filter(a => a.type !== 'credit_card' && a.type !== 'loan')
     .reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
 
   // 2. INVESTMENT VALUE (All documented investments)
@@ -35,19 +36,27 @@ async function getSummaryMetrics() {
   // 5. AVAILABLE MONEY (Liquid Money + Investment Value)
   const availableMoney = liquidMoney + investmentValue;
 
-  // 6. CREDIT CARD DEBT
-  const creditCardDebt = enrichedAccounts
-    .filter(a => a.type === 'credit_card')
-    .reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
+  // 6. TOTAL DEBT & CREDIT CARD DEBT (from debts table — source of truth for all cards and loans)
+  const debts = await dbAll('SELECT * FROM debts');
+  const totalDebt = debts.reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
+  const creditCardDebt = debts
+    .filter(d => d.type === 'credit_card')
+    .reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
+  const loanDebt = debts
+    .filter(d => d.type !== 'credit_card')
+    .reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
 
-  // 7. LOAN & OTHER DEBTS
-  const debts = await dbAll("SELECT * FROM debts WHERE type != 'credit_card' OR account_id IS NULL");
-  const loanDebt = debts.reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
-
-  // 8. TOTAL DEBT & NET WORTH
-  const totalDebt = creditCardDebt + loanDebt;
+  // 7. TOTAL ASSETS & NET WORTH
   const totalAssets = liquidMoney + investmentValue;
   const netWorth = totalAssets - totalDebt;
+
+  // 8. DAILY BUDGET STATUS
+  let presupuestoDiario = {};
+  try {
+    presupuestoDiario = await budgetingService.getDailyBudgetStatus();
+  } catch (e) {
+    console.error('Error fetching daily budget status in getSummaryMetrics:', e);
+  }
 
   return {
     liquid_money: liquidMoney,
@@ -60,7 +69,13 @@ async function getSummaryMetrics() {
     loan_debt: loanDebt,
     total_debt: totalDebt,
     total_assets: totalAssets,
-    net_worth: netWorth
+    net_worth: netWorth,
+    // Aliases and additional views support
+    disponible_hoy: availableMoney,
+    total_inversiones: investmentValue,
+    total_deuda: totalDebt,
+    riqueza_neta: netWorth,
+    presupuesto_diario: presupuestoDiario
   };
 }
 

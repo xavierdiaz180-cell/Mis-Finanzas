@@ -55,7 +55,7 @@ function MainApp() {
       .catch(() => setApiStatus('error'));
 
     fetchSummary();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, activeTab]);
 
   if (loading) {
     return (
@@ -111,7 +111,7 @@ function MainApp() {
       {/* Main View Container */}
       <main>
         {activeTab === 'inicio' && (
-          <InicioView summary={summaryData} onNavigate={setActiveTab} hideValues={hideValues} />
+          <InicioView summary={summaryData} onNavigate={setActiveTab} onRefresh={fetchSummary} hideValues={hideValues} />
         )}
 
         {activeTab === 'cartera' && (

@@ -1,21 +1,43 @@
-import React from 'react';
-import { Wallet, PiggyBank, CreditCard, ShieldCheck, Sparkles, Calendar, TrendingUp, AlertCircle, ArrowUpRight, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Wallet, PiggyBank, CreditCard, ShieldCheck, Sparkles, Calendar, TrendingUp, AlertCircle, ArrowUpRight, CheckCircle2, RefreshCw } from 'lucide-react';
 import { formatMoney } from '../utils/formatters';
+import { API_BASE } from '../config';
 
-export default function InicioView({ summary, onNavigate, hideValues = false }) {
-  if (!summary) return <div style={{ color: 'var(--text-muted)', padding: '2rem', textAlign: 'center' }}>Cargando métricas financieras oficiales...</div>;
+export default function InicioView({ summary: initialSummary, onNavigate, onRefresh, hideValues = false }) {
+  const [localSummary, setLocalSummary] = useState(initialSummary || null);
+  const [loadingMetrics, setLoadingMetrics] = useState(!initialSummary);
 
-  const {
-    liquid_money = summary.disponible_hoy || 0,
-    investment_value = summary.total_inversiones || 0,
-    available_money = (summary.disponible_hoy || 0) + (summary.total_inversiones || 0),
-    spendable_money = summary.spendable_money || summary.disponible_hoy || 0,
-    total_debt = summary.total_deuda || 0,
-    net_worth = summary.net_worth || summary.riqueza_neta || 0,
-    salud_financiera = {},
-    presupuesto_diario = {},
-    coach_recomendacion_corta = ''
-  } = summary;
+  const fetchLiveSummary = () => {
+    setLoadingMetrics(true);
+    fetch(`${API_BASE}/api/summary`)
+      .then(res => res.json())
+      .then(data => {
+        setLocalSummary(data);
+      })
+      .catch(err => console.error('Error fetching summary in InicioView:', err))
+      .finally(() => setLoadingMetrics(false));
+  };
+
+  useEffect(() => {
+    fetchLiveSummary();
+  }, []);
+
+  useEffect(() => {
+    if (initialSummary) {
+      setLocalSummary(initialSummary);
+    }
+  }, [initialSummary]);
+
+  const summary = localSummary || initialSummary || {};
+
+  const liquid_money = summary.liquid_money !== undefined ? parseFloat(summary.liquid_money) : parseFloat(summary.disponible_hoy || 0);
+  const investment_value = summary.investment_value !== undefined ? parseFloat(summary.investment_value) : parseFloat(summary.total_inversiones || 0);
+  const available_money = summary.available_money !== undefined ? parseFloat(summary.available_money) : (liquid_money + investment_value);
+  const spendable_money = summary.spendable_money !== undefined ? parseFloat(summary.spendable_money) : (liquid_money);
+  const total_debt = summary.total_debt !== undefined ? parseFloat(summary.total_debt) : parseFloat(summary.total_deuda || 0);
+  const net_worth = summary.net_worth !== undefined ? parseFloat(summary.net_worth) : (available_money - total_debt);
+  const presupuesto_diario = summary.presupuesto_diario || {};
+  const coach_recomendacion_corta = summary.coach_recomendacion_corta || '';
 
   // Daily budget text mapping according to Phase 3.1 specification
   const getBudgetStatusText = (status) => {
