@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, PieChart, DollarSign, Plus, Trash2, Shield, AlertCircle, Sparkles, Target, Zap, ShieldAlert, CheckCircle2, RefreshCw } from 'lucide-react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, PieChart, DollarSign, Plus, Trash2, Shield, AlertCircle, Sparkles, Target, Zap, ShieldAlert, CheckCircle2, RefreshCw, FileSpreadsheet } from 'lucide-react';
+import ExportExcelModal from '../components/ExportExcelModal';
 import { API_BASE } from '../config';
 
 export default function AnalisisView({ onRefresh }) {
@@ -10,6 +11,7 @@ export default function AnalisisView({ onRefresh }) {
   // AI Deep Analysis
   const [deepAnalysis, setDeepAnalysis] = useState(null);
   const [loadingAi, setLoadingAi] = useState(false);
+  const [showExcelExport, setShowExcelExport] = useState(false);
 
   // Form Recurring Expense
   const [showAddRecurringModal, setShowAddRecurringModal] = useState(false);
@@ -120,30 +122,56 @@ export default function AnalisisView({ onRefresh }) {
           </p>
         </div>
 
-        <button
-          onClick={handleGenerateDeepAnalysis}
-          disabled={loadingAi}
-          className="nav-tab-btn active"
-          style={{
-            background: 'linear-gradient(135deg, #a78bfa 0%, #3b82f6 100%)',
-            border: 'none',
-            color: 'white',
-            padding: '0.75rem 1.25rem',
-            fontWeight: '600',
-            fontSize: '0.9rem',
-            borderRadius: 'var(--radius-md)',
-            boxShadow: '0 4px 15px rgba(167, 139, 250, 0.3)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            cursor: loadingAi ? 'wait' : 'pointer',
-            opacity: loadingAi ? 0.7 : 1
-          }}
-        >
-          {loadingAi ? <RefreshCw size={18} className="spin" /> : <Sparkles size={18} />}
-          {loadingAi ? 'Generando Estrategia IA...' : ' Generar Análisis Estratégico IA'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={() => setShowExcelExport(true)}
+            className="nav-tab-btn"
+            style={{
+              background: 'rgba(16, 185, 129, 0.2)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              color: '#34d399',
+              padding: '0.75rem 1.25rem',
+              fontWeight: '600',
+              fontSize: '0.9rem',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: 'pointer'
+            }}
+          >
+            <FileSpreadsheet size={18} /> Exportar a Excel (.xlsx)
+          </button>
+
+          <button
+            onClick={handleGenerateDeepAnalysis}
+            disabled={loadingAi}
+            className="nav-tab-btn active"
+            style={{
+              background: 'linear-gradient(135deg, #a78bfa 0%, #3b82f6 100%)',
+              border: 'none',
+              color: 'white',
+              padding: '0.75rem 1.25rem',
+              fontWeight: '600',
+              fontSize: '0.9rem',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: '0 4px 15px rgba(167, 139, 250, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: loadingAi ? 'wait' : 'pointer',
+              opacity: loadingAi ? 0.7 : 1
+            }}
+          >
+            {loadingAi ? <RefreshCw size={18} className="spin" /> : <Sparkles size={18} />}
+            {loadingAi ? 'Generando Estrategia IA...' : ' Generar Análisis Estratégico IA'}
+          </button>
+        </div>
       </div>
+
+      {showExcelExport && (
+        <ExportExcelModal onClose={() => setShowExcelExport(false)} />
+      )}
 
       {/* AI Deep Analysis Result Section */}
       {deepAnalysis && (

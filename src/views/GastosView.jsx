@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Search, Filter, Calendar, Tag, Wallet, AlertTriangle, CheckCircle2, Sparkles, FileText, Trash2 } from 'lucide-react';
+import { Mic, Search, Filter, Calendar, Tag, Wallet, AlertTriangle, CheckCircle2, Sparkles, FileText, Trash2, FileSpreadsheet } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
+import ExportExcelModal from '../components/ExportExcelModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
 
@@ -9,6 +10,7 @@ export default function GastosView({ onRefresh, hideValues = false }) {
   const [categories, setCategories] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [showDocScanner, setShowDocScanner] = useState(false);
+  const [showExcelExport, setShowExcelExport] = useState(false);
 
   // Filters
   const [filterConcept, setFilterConcept] = useState('');
@@ -243,6 +245,14 @@ export default function GastosView({ onRefresh, hideValues = false }) {
           >
             <FileText size={16} /> Escanear Recibo / Ticket (Gemini)
           </button>
+
+          <button 
+            onClick={() => setShowExcelExport(true)}
+            className="nav-tab-btn"
+            style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#34d399', padding: '0.75rem 1.25rem', fontWeight: '600' }}
+          >
+            <FileSpreadsheet size={16} /> Exportar a Excel (.xlsx)
+          </button>
         </div>
 
         {showDocScanner && (
@@ -250,6 +260,12 @@ export default function GastosView({ onRefresh, hideValues = false }) {
             docType="receipt" 
             onClose={() => setShowDocScanner(false)} 
             onReconciled={() => { loadData(); if (onRefresh) onRefresh(); }} 
+          />
+        )}
+
+        {showExcelExport && (
+          <ExportExcelModal 
+            onClose={() => setShowExcelExport(false)} 
           />
         )}
 
