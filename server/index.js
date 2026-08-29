@@ -616,13 +616,13 @@ app.get('/api/debts', async (req, res) => {
         return sum + (parseFloat(p.monthly_amount) * remInst);
       }, 0);
 
-      const totalBalance = parseFloat(debt.current_balance || 0);
-      const revolvingBalance = Math.max(0, totalBalance - msiRemainingTotal);
-      const noInterestPayment = activeMsiPlans.length > 0 ? (msiMonthlySum + revolvingBalance) : (parseFloat(debt.no_interest_payment) || totalBalance);
+      const revolvingBalance = parseFloat(debt.current_balance || 0);
+      const calculatedCurrentBalance = activeMsiPlans.length > 0 ? (revolvingBalance + msiMonthlySum) : revolvingBalance;
+      const noInterestPayment = calculatedCurrentBalance;
 
       return {
         ...debt,
-        current_balance: totalBalance,
+        current_balance: calculatedCurrentBalance,
         no_interest_payment: noInterestPayment,
         msi_monthly_sum: msiMonthlySum,
         msi_remaining_total: msiRemainingTotal,
