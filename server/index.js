@@ -276,7 +276,7 @@ app.get('/api/transactions', async (req, res) => {
     let sql = 'SELECT t.*, a.name as account_name FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE 1=1';
     const params = [];
 
-    if (type) {
+    if (type && type !== 'all') {
       sql += ' AND t.type = ?';
       params.push(type);
     }

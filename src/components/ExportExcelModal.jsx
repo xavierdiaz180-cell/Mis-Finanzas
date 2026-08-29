@@ -60,7 +60,13 @@ export default function ExportExcelModal({ onClose }) {
       filtered = filtered.filter(t => t.date && t.date.startsWith(selectedMonth));
     }
     if (selectedAccount !== 'ALL') {
-      filtered = filtered.filter(t => String(t.account_id) === String(selectedAccount));
+      const selectedAccName = (accountsMap[selectedAccount] || '').toLowerCase();
+      filtered = filtered.filter(t => {
+        const matchesId = String(t.account_id) === String(selectedAccount);
+        const matchesName = selectedAccName && t.account_name && t.account_name.toLowerCase() === selectedAccName;
+        const matchesConcept = selectedAccName && t.concept && t.concept.toLowerCase().includes(selectedAccName);
+        return matchesId || matchesName || matchesConcept;
+      });
     }
     if (selectedCategory !== 'ALL') {
       filtered = filtered.filter(t => t.category === selectedCategory);
