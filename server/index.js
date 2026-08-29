@@ -3,8 +3,16 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const multer = require('multer');
 const { initDatabase, dbAll, dbGet, dbRun } = require('./database');
-const { calculateFinancialMetrics, processTransaction, deleteTransaction, syncCreditCardsAndDebts } = require('./services/financialRules');
 
+// Domain Controllers
+const accountController = require('./controllers/accountController');
+const transactionController = require('./controllers/transactionController');
+const creditCardController = require('./controllers/creditCardController');
+const investmentController = require('./controllers/investmentController');
+const budgetController = require('./controllers/budgetController');
+const financialController = require('./controllers/financialController');
+
+// Auxiliary Services
 const { parseVoiceDictation, analyzeDocument } = require('./services/geminiService');
 const { generateCoachChatResponse, getCoachRecommendations, generateDeepAnalysis } = require('./services/coachService');
 const { getFullAnalysisData } = require('./services/analysisService');
@@ -44,7 +52,7 @@ app.get('/api/health', async (req, res) => {
       status: 'online',
       timestamp: new Date().toISOString(),
       database: dbCheck.test === 1 ? 'connected' : 'error',
-      version: '1.0.0'
+      version: '2.0.0'
     });
   } catch (error) {
     res.status(500).json({ status: 'error', database: 'disconnected', message: error.message });
@@ -80,290 +88,55 @@ app.post('/api/settings', async (req, res) => {
 });
 
 // Summary & Financial Metrics
-app.get('/api/summary', async (req, res) => {
-  try {
-    const metrics = await calculateFinancialMetrics();
-    res.json(metrics);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+app.get('/api/summary', financialController.getSummaryMetrics);
+app.get('/api/metrics', financialController.getSummaryMetrics);
 
 app.get('/api/categories', (req, res) => {
   res.json(PREDEFINED_CATEGORIES);
 });
 
 // Accounts (CARTERA)
-app.get('/api/accounts', async (req, res) => {
-  try {
-    const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1 ORDER BY id ASC');
-    const installmentPlans = await dbAll('SELECT * FROM installment_plans');
-    const debts = await dbAll('SELECT * FROM debts');
+app.get('/api/accounts', accountController.getAccounts);
+app.post('/api/accounts', accountController.createAccount);
+app.get('/api/accounts/:id', accountController.getAccountById);
+app.put('/api/accounts/:id', accountController.updateAccount);
+app.delete('/api/accounts/:id', accountController.deleteAccount);
 
-    const processedAccounts = accounts.map(acc => {
-      if (acc.type === 'credit_card') {
-        const matchingDebts = debts.filter(d => d.name === acc.name || d.name.toLowerCase().includes(acc.name.toLowerCase()) || acc.name.toLowerCase().includes(d.name.toLowerCase()));
-        const debtIds = matchingDebts.map(d => d.id);
+// Transactions (MOVIMIENTOS)
+app.get('/api/transactions', transactionController.getTransactions);
+app.post('/api/transactions', transactionController.createTransaction);
+app.delete('/api/transactions/:id', transactionController.removeTransaction);
+app.get('/api/incomes', transactionController.getIncomes);
 
-        const msiPlans = installmentPlans.filter(p => p.account_id === acc.id || debtIds.includes(p.debt_id));
-        const activeMsiPlans = msiPlans.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
+// Daily Budget (PRESUPUESTO DIARIO 24H)
+app.get('/api/daily-budget', budgetController.getBudget);
+app.post('/api/daily-budget', budgetController.updateBudgetConfig);
 
-        const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
-        const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
-          const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
-          return sum + (parseFloat(p.monthly_amount) * remInst);
-        }, 0);
+// Credit Cards & Debts (TARJETAS Y DEUDAS)
+app.get('/api/debts', creditCardController.getDebts);
+app.post('/api/debts', creditCardController.createDebt);
+app.put('/api/debts/:id', creditCardController.updateDebt);
+app.post('/api/debts/:id/pay', creditCardController.payDebt);
+app.delete('/api/debts/:id', creditCardController.deleteDebt);
 
-        const totalDebt = parseFloat(acc.balance || 0);
-        const revolvingBalance = Math.max(0, totalDebt - msiRemainingTotal);
-        const noInterestPayment = activeMsiPlans.length > 0 ? (msiMonthlySum + revolvingBalance) : (parseFloat(acc.no_interest_payment) || totalDebt);
-        const available = acc.credit_limit > 0 ? Math.max(0, acc.credit_limit - totalDebt) : acc.available_credit;
+// Installment Plans (MSI)
+app.get('/api/installment-plans', creditCardController.getInstallmentPlans);
+app.post('/api/installment-plans', creditCardController.createInstallmentPlan);
+app.delete('/api/installment-plans/:id', creditCardController.deleteInstallmentPlan);
 
-        return {
-          ...acc,
-          balance: totalDebt,
-          total_debt: totalDebt,
-          available_credit: available,
-          msi_pending: msiRemainingTotal,
-          msi_monthly_sum: msiMonthlySum,
-          msi_remaining_total: msiRemainingTotal,
-          revolving_balance: revolvingBalance,
-          no_interest_payment: noInterestPayment,
-          msi_plans: msiPlans
-        };
-      }
-      return acc;
-    });
-
-    res.json(processedAccounts);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-app.post('/api/accounts', async (req, res) => {
-  try {
-    const { name, type, balance = 0, credit_limit = 0, interest_rate = 0, due_date, cutoff_date } = req.body;
-    if (!name || !type) {
-      return res.status(400).json({ error: 'Nombre y tipo de cuenta son requeridos.' });
-    }
-    const initialAvailable = type === 'credit_card' ? parseFloat(credit_limit) - parseFloat(balance) : parseFloat(balance);
-    
-    const result = await dbRun(
-      `INSERT INTO accounts (name, type, balance, available_credit, credit_limit, interest_rate, due_date, cutoff_date, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [name, type, parseFloat(balance), initialAvailable, parseFloat(credit_limit), parseFloat(interest_rate), due_date, cutoff_date]
-    );
-
-    let debtId = null;
-    if (type === 'credit_card') {
-      const debtAmount = parseFloat(balance);
-      const minPayment = parseFloat(req.body.minimum_payment || debtAmount * 0.05);
-      const debtResult = await dbRun(
-        `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
-         VALUES (?, 'credit_card', ?, ?, ?, ?, ?)`,
-        [name, debtAmount, debtAmount, minPayment, parseFloat(interest_rate), due_date]
-      );
-      debtId = debtResult.lastID;
-    }
-
-    if (req.body.msi_plans && Array.isArray(req.body.msi_plans)) {
-      for (const msi of req.body.msi_plans) {
-        if (msi.concept && parseFloat(msi.monthly_amount) > 0) {
-          const totalInst = parseInt(msi.installments_total || 12, 10);
-          const paidInst = parseInt(msi.installments_paid || 0, 10);
-          const remInst = Math.max(0, totalInst - paidInst);
-          const monthly = parseFloat(msi.monthly_amount);
-          const totalAmt = parseFloat(msi.total_amount || (monthly * totalInst));
-          const remBal = monthly * remInst;
-
-          await dbRun(
-            `INSERT INTO installment_plans (account_id, debt_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [result.lastID, debtId, msi.concept, totalAmt, monthly, totalInst, paidInst, remBal]
-          );
-        }
-      }
-    }
-
-    res.json({ success: true, account_id: result.lastID, debt_id: debtId, message: 'Cuenta agregada exitosamente.' });
-
-
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/accounts/:id', async (req, res) => {
-  try {
-    const accountId = req.params.id;
-    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [accountId]);
-    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
-
-    const currentMonth = new Date().toISOString().substring(0, 7);
-
-    const incRow = await dbAll(
-      `SELECT SUM(amount) as total FROM transactions WHERE account_id = ? AND type = 'income' AND date LIKE ?`,
-      [accountId, `${currentMonth}%`]
-    );
-    const monthIncome = incRow[0]?.total || 0;
-
-    const expRow = await dbAll(
-      `SELECT SUM(amount) as total FROM transactions WHERE account_id = ? AND type = 'expense' AND date LIKE ?`,
-      [accountId, `${currentMonth}%`]
-    );
-    const monthExpense = expRow[0]?.total || 0;
-
-    const lastTx = await dbGet(
-      'SELECT * FROM transactions WHERE account_id = ? ORDER BY date DESC, id DESC LIMIT 1',
-      [accountId]
-    );
-
-    const history = await dbAll(
-      'SELECT * FROM transactions WHERE account_id = ? ORDER BY date DESC, id DESC',
-      [accountId]
-    );
-
-    res.json({
-      account,
-      month_income: monthIncome,
-      month_expense: monthExpense,
-      last_transaction: lastTx || null,
-      history
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/accounts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, balance, credit_limit } = req.body;
-    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [id]);
-    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
-
-    const newBalance = balance !== undefined ? parseFloat(balance) : account.balance;
-    const newLimit = credit_limit !== undefined ? parseFloat(credit_limit) : account.credit_limit;
-    const newAvailable = account.type === 'credit_card' ? newLimit - (account.credit_limit - account.available_credit) : newBalance;
-
-    await dbRun(
-      'UPDATE accounts SET name = ?, balance = ?, available_credit = ?, credit_limit = ? WHERE id = ?',
-      [name || account.name, newBalance, newAvailable, newLimit, id]
-    );
-    res.json({ success: true, message: 'Cuenta actualizada.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await dbRun('DELETE FROM transactions WHERE account_id = ?', [id]);
-    await dbRun('DELETE FROM accounts WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Cuenta y sus transacciones eliminadas.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Transactions (GASTOS & INGRESOS)
-app.get('/api/transactions', async (req, res) => {
-  try {
-    const { type, category, account_id, concept, start_date, end_date } = req.query;
-    let sql = 'SELECT t.*, a.name as account_name FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE 1=1';
-    const params = [];
-
-    if (type && type !== 'all') {
-      sql += ' AND t.type = ?';
-      params.push(type);
-    }
-    if (category) {
-      sql += ' AND t.category = ?';
-      params.push(category);
-    }
-    if (account_id) {
-      sql += ' AND t.account_id = ?';
-      params.push(account_id);
-    }
-    if (concept) {
-      sql += ' AND t.concept LIKE ?';
-      params.push(`%${concept}%`);
-    }
-    if (start_date) {
-      sql += ' AND t.date >= ?';
-      params.push(start_date);
-    }
-    if (end_date) {
-      sql += ' AND t.date <= ?';
-      params.push(end_date);
-    }
-
-    sql += ' ORDER BY t.date DESC, t.id DESC';
-    const transactions = await dbAll(sql, params);
-    res.json(transactions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/transactions', async (req, res) => {
-  try {
-    const result = await processTransaction(req.body);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-app.delete('/api/transactions/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await deleteTransaction(id);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-app.get('/api/incomes', async (req, res) => {
-  try {
-    const { type, account_id } = req.query;
-    let sql = `
-      SELECT t.*, a.name as account_name 
-      FROM transactions t 
-      LEFT JOIN accounts a ON t.account_id = a.id 
-      WHERE t.type = 'income'
-    `;
-    const params = [];
-
-    if (type) {
-      sql += ' AND t.category = ?';
-      params.push(type);
-    }
-    if (account_id) {
-      sql += ' AND t.account_id = ?';
-      params.push(account_id);
-    }
-
-    sql += ' ORDER BY t.date DESC, t.id DESC';
-    const incomes = await dbAll(sql, params);
-    res.json(incomes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// Investments (INVERSIONES)
+app.get('/api/investments', investmentController.getInvestments);
+app.post('/api/investments', investmentController.createInvestment);
+app.post('/api/investments/:id/update-value', investmentController.updateInvestmentValue);
+app.post('/api/investments/:id/deposit', investmentController.depositToInvestment);
+app.post('/api/investments/:id/withdraw', investmentController.withdrawFromInvestment);
+app.delete('/api/investments/:id', investmentController.deleteInvestment);
 
 // CHARTS DATA API
 app.get('/api/charts/data', async (req, res) => {
   try {
-    // 1. All investments
     const investments = await dbAll('SELECT * FROM investments ORDER BY last_update ASC');
 
-    // 2. Expenses by category (last 12 months) — PostgreSQL syntax
     const expensesByCategory = await dbAll(`
       SELECT category, SUM(amount) as total, COUNT(*) as count
       FROM transactions
@@ -373,7 +146,6 @@ app.get('/api/charts/data', async (req, res) => {
       ORDER BY total DESC
     `);
 
-    // 3. Monthly income vs expenses (last 12 months) — PostgreSQL syntax
     const monthlyFlow = await dbAll(`
       SELECT 
         LEFT(date, 7) as month,
@@ -387,7 +159,6 @@ app.get('/api/charts/data', async (req, res) => {
       ORDER BY month ASC
     `);
 
-    // 4. Daily balance evolution (last 90 days) — PostgreSQL syntax
     const dailyTransactions = await dbAll(`
       SELECT 
         date,
@@ -400,15 +171,6 @@ app.get('/api/charts/data', async (req, res) => {
       ORDER BY date ASC
     `);
 
-    // 5. Investment transactions history
-    const investmentHistory = await dbAll(`
-      SELECT date, amount, type, concept, account_id
-      FROM transactions
-      WHERE type IN ('investment_deposit', 'investment_withdrawal')
-      ORDER BY date ASC
-    `).catch(() => []);
-
-    // Calculate cumulative balance for daily chart
     let cumulativeBalance = 0;
     const balanceTimeline = dailyTransactions.map(day => {
       cumulativeBalance += (parseFloat(day.income) || 0) - (parseFloat(day.expenses) || 0);
@@ -420,12 +182,11 @@ app.get('/api/charts/data', async (req, res) => {
       };
     });
 
-    // Build investment timeline data per investment
     const investmentTimeline = investments.map(inv => ({
       name: inv.name,
-      invested: parseFloat(inv.invested_amount) || 0,
-      current: parseFloat(inv.current_documented_value) || 0,
-      gainLoss: (parseFloat(inv.current_documented_value) || 0) - (parseFloat(inv.invested_amount) || 0),
+      invested: parseFloat(inv.capital_contributed || inv.invested_amount || 0),
+      current: parseFloat(inv.current_value || inv.current_documented_value || 0),
+      gainLoss: (parseFloat(inv.current_value || inv.current_documented_value || 0)) - (parseFloat(inv.capital_contributed || inv.invested_amount || 0)),
       returnPct: inv.invested_amount > 0
         ? parseFloat((((inv.current_documented_value - inv.invested_amount) / inv.invested_amount) * 100).toFixed(2))
         : 0,
@@ -445,493 +206,6 @@ app.get('/api/charts/data', async (req, res) => {
       monthlyFlow,
       balanceTimeline
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// INVERSIONES API
-app.get('/api/investments', async (req, res) => {
-  try {
-    const rows = await dbAll('SELECT * FROM investments ORDER BY id DESC');
-    const investments = rows.map(inv => {
-      const profitLoss = inv.current_documented_value - inv.invested_amount;
-      const profitLossPercentage = inv.invested_amount > 0 ? (profitLoss / inv.invested_amount) * 100 : 0;
-      return {
-        ...inv,
-        profit_loss: profitLoss,
-        profit_loss_percentage: profitLossPercentage
-      };
-    });
-    res.json(investments);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/investments', async (req, res) => {
-  try {
-    const { name, invested_amount = 0, current_documented_value = 0, risk_level = 'medium' } = req.body;
-    if (!name) return res.status(400).json({ error: 'El nombre de la inversión es requerido.' });
-
-    const today = new Date().toISOString().split('T')[0];
-    const result = await dbRun(
-      `INSERT INTO investments (name, invested_amount, current_documented_value, risk_level, last_update)
-       VALUES (?, ?, ?, ?, ?)`,
-      [name, parseFloat(invested_amount), parseFloat(current_documented_value || invested_amount), risk_level, today]
-    );
-
-    res.json({ success: true, investment_id: result.lastID, message: 'Inversión registrada correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/investments/:id/update-value', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { current_documented_value } = req.body;
-    if (current_documented_value === undefined) {
-      return res.status(400).json({ error: 'El valor documentado es requerido.' });
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    await dbRun(
-      'UPDATE investments SET current_documented_value = ?, last_update = ? WHERE id = ?',
-      [parseFloat(current_documented_value), today, id]
-    );
-
-    res.json({ success: true, message: 'Valor documentado actualizado correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/investments/:id/deposit', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { account_id, amount } = req.body;
-
-    if (!account_id || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'Cuenta de origen y monto válido son requeridos.' });
-    }
-
-    const investment = await dbGet('SELECT * FROM investments WHERE id = ?', [id]);
-    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
-
-    if (!investment || !account) return res.status(404).json({ error: 'Inversión o cuenta no encontrada.' });
-
-    await dbRun('UPDATE accounts SET balance = balance - ? WHERE id = ?', [parseFloat(amount), account_id]);
-
-    const today = new Date().toISOString().split('T')[0];
-    await dbRun(
-      `UPDATE investments SET 
-        invested_amount = invested_amount + ?, 
-        current_documented_value = current_documented_value + ?, 
-        last_update = ? 
-       WHERE id = ?`,
-      [parseFloat(amount), parseFloat(amount), today, id]
-    );
-
-    await dbRun(
-      `INSERT INTO transactions (date, type, amount, category, concept, account_id, source, status)
-       VALUES (?, 'investment_deposit', ?, 'Inversiones', ?, ?, 'manual_confirm', 'confirmed')`,
-      [today, parseFloat(amount), `Depósito a inversión: ${investment.name}`, account_id]
-    );
-
-    res.json({ success: true, message: 'Depósito a inversión ejecutado correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/investments/:id/withdraw', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { account_id, amount } = req.body;
-
-    if (!account_id || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'Cuenta destino y monto válido son requeridos.' });
-    }
-
-    const investment = await dbGet('SELECT * FROM investments WHERE id = ?', [id]);
-    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
-
-    if (!investment || !account) return res.status(404).json({ error: 'Inversión o cuenta no encontrada.' });
-
-    if (investment.current_documented_value < parseFloat(amount)) {
-      return res.status(400).json({ error: 'El monto a retirar supera el valor documentado actual de la inversión.' });
-    }
-
-    await dbRun('UPDATE accounts SET balance = balance + ? WHERE id = ?', [parseFloat(amount), account_id]);
-
-    const today = new Date().toISOString().split('T')[0];
-    await dbRun(
-      `UPDATE investments SET 
-        current_documented_value = current_documented_value - ?, 
-        last_update = ? 
-       WHERE id = ?`,
-      [parseFloat(amount), today, id]
-    );
-
-    await dbRun(
-      `INSERT INTO transactions (date, type, amount, category, concept, account_id, source, status)
-       VALUES (?, 'investment_withdrawal', ?, 'Inversiones', ?, ?, 'manual_confirm', 'confirmed')`,
-      [today, parseFloat(amount), `Retiro de inversión: ${investment.name}`, account_id]
-    );
-
-    res.json({ success: true, message: 'Retiro de inversión completado exitosamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/investments/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const investment = await dbGet('SELECT * FROM investments WHERE id = ?', [id]);
-    if (!investment) return res.status(404).json({ error: 'Inversión no encontrada.' });
-
-    await dbRun('DELETE FROM investments WHERE id = ?', [id]);
-    res.json({ success: true, message: 'Inversión eliminada correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// DEUDAS API
-app.get('/api/debts', async (req, res) => {
-  try {
-    await syncCreditCardsAndDebts();
-    const debts = await dbAll('SELECT * FROM debts ORDER BY id DESC');
-    const installmentPlans = await dbAll('SELECT * FROM installment_plans');
-
-    const debtsWithMSI = debts.map(debt => {
-      const msi = installmentPlans.filter(plan => plan.debt_id === debt.id || (plan.account_id && plan.account_id === debt.account_id));
-      const activeMsiPlans = msi.filter(p => (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1));
-
-      const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
-      const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
-        const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
-        return sum + (parseFloat(p.monthly_amount) * remInst);
-      }, 0);
-
-      const revolvingBalance = parseFloat(debt.current_balance || 0);
-      const calculatedCurrentBalance = activeMsiPlans.length > 0 ? (revolvingBalance + msiMonthlySum) : revolvingBalance;
-      const noInterestPayment = calculatedCurrentBalance;
-
-      return {
-        ...debt,
-        current_balance: calculatedCurrentBalance,
-        no_interest_payment: noInterestPayment,
-        msi_monthly_sum: msiMonthlySum,
-        msi_remaining_total: msiRemainingTotal,
-        revolving_balance: revolvingBalance,
-        msi_plans: msi
-      };
-    });
-
-    res.json(debtsWithMSI);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/debts', async (req, res) => {
-  try {
-    const { 
-      name, 
-      type, 
-      original_amount = 0, 
-      current_balance = 0, 
-      payment_amount = 0, 
-      min_payment = 0,
-      no_interest_payment = 0,
-      interest_rate = 0, 
-      due_date, 
-      cutoff_date,
-      remaining_payments = 0 
-    } = req.body;
-    if (!name || !type) return res.status(400).json({ error: 'Nombre y tipo de deuda son requeridos.' });
-
-    const finalNoInterestPayment = parseFloat(no_interest_payment || payment_amount || current_balance || 0);
-    const finalMinPayment = parseFloat(min_payment || (current_balance ? Math.round(current_balance * 0.05) : 0));
-
-    const result = await dbRun(
-      `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date, remaining_payments)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        name, 
-        type, 
-        parseFloat(original_amount), 
-        parseFloat(current_balance || original_amount), 
-        finalNoInterestPayment,
-        finalMinPayment,
-        finalNoInterestPayment,
-        parseFloat(interest_rate), 
-        due_date, 
-        cutoff_date,
-        parseInt(remaining_payments, 10)
-      ]
-    );
-
-    res.json({ success: true, debt_id: result.lastID, message: 'Deuda registrada exitosamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/debts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, current_balance, min_payment, no_interest_payment, cutoff_date, due_date, interest_rate } = req.body;
-
-    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
-    if (!debt) return res.status(404).json({ error: 'Deuda no encontrada.' });
-
-    const newName = name !== undefined ? name : debt.name;
-    const newBalance = current_balance !== undefined ? parseFloat(current_balance) : debt.current_balance;
-    const newMin = min_payment !== undefined ? parseFloat(min_payment) : debt.min_payment;
-    const newNoInt = no_interest_payment !== undefined ? parseFloat(no_interest_payment) : debt.no_interest_payment;
-    const newCutoff = cutoff_date !== undefined ? cutoff_date : debt.cutoff_date;
-    const newDue = due_date !== undefined ? due_date : debt.due_date;
-    const newRate = interest_rate !== undefined ? parseFloat(interest_rate) : debt.interest_rate;
-
-    await dbRun(
-      `UPDATE debts SET 
-        name = ?, 
-        current_balance = ?, 
-        min_payment = ?, 
-        no_interest_payment = ?, 
-        cutoff_date = ?, 
-        due_date = ?, 
-        interest_rate = ? 
-       WHERE id = ?`,
-      [newName, newBalance, newMin, newNoInt, newCutoff, newDue, newRate, id]
-    );
-
-    // Also update corresponding account in accounts table if exists
-    const acc = await dbGet("SELECT * FROM accounts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${debt.name.toLowerCase()}%`, debt.name.toLowerCase()]);
-    if (acc) {
-      const creditLimit = parseFloat(acc.credit_limit || 0);
-      const newAvail = creditLimit > 0 ? Math.max(0, creditLimit - newBalance) : acc.available_credit;
-      await dbRun(
-        `UPDATE accounts SET 
-          name = ?, balance = ?, available_credit = ?, min_payment = ?, no_interest_payment = ?, cutoff_date = ?, due_date = ?, interest_rate = ?
-         WHERE id = ?`,
-        [newName, newBalance, newAvail, newMin, newNoInt, newCutoff, newDue, newRate, acc.id]
-      );
-    }
-
-    await syncCreditCardsAndDebts();
-    res.json({ success: true, message: 'Deuda / Tarjeta actualizada correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/debts/:id/pay', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { account_id, amount, advance_msi = true } = req.body;
-
-    if (!account_id || !amount || amount <= 0) {
-      return res.status(400).json({ error: 'Cuenta de origen y monto válido son requeridos.' });
-    }
-
-    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
-    const originAccount = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
-
-    if (!debt || !originAccount) return res.status(404).json({ error: 'Deuda o cuenta de origen no encontrada.' });
-
-    const numAmount = parseFloat(amount);
-
-    // 1. Deduct payment from origin account (e.g., BBVA Nómina)
-    if (originAccount.type === 'credit_card') {
-      const newAvail = Math.max(0, (parseFloat(originAccount.available_credit) || 0) - numAmount);
-      const newBal = (parseFloat(originAccount.balance) || 0) + numAmount;
-      await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvail, newBal, originAccount.id]);
-    } else {
-      const newBal = (parseFloat(originAccount.balance) || 0) - numAmount;
-      await dbRun('UPDATE accounts SET balance = ? WHERE id = ?', [newBal, originAccount.id]);
-    }
-
-    // 2. Reduce debt balance
-    const newDebtBalance = Math.max(0, (parseFloat(debt.current_balance) || 0) - numAmount);
-    const newRemainingPayments = debt.remaining_payments > 0 ? debt.remaining_payments - 1 : 0;
-    await dbRun(
-      'UPDATE debts SET current_balance = ?, remaining_payments = ? WHERE id = ?',
-      [newDebtBalance, newRemainingPayments, debt.id]
-    );
-
-    // 3. Find and update target credit card account balance & available credit
-    const targetCC = await dbGet(
-      "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-      [debt.name, `%${debt.name.toLowerCase()}%`, debt.name]
-    );
-
-    if (targetCC) {
-      const newTargetBal = Math.max(0, (parseFloat(targetCC.balance) || 0) - numAmount);
-      const limit = parseFloat(targetCC.credit_limit || 0);
-      const newTargetAvail = limit > 0 ? Math.min(limit, limit - newTargetBal) : ((parseFloat(targetCC.available_credit) || 0) + numAmount);
-      await dbRun('UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?', [newTargetBal, newTargetAvail, targetCC.id]);
-    }
-
-    // 4. Advance active MSI plans for this card if advance_msi is true
-    if (advance_msi) {
-      const activePlans = await dbAll(
-        'SELECT * FROM installment_plans WHERE debt_id = ? OR account_id = ?',
-        [debt.id, targetCC ? targetCC.id : null]
-      );
-
-      for (const plan of activePlans) {
-        const paid = parseInt(plan.installments_paid, 10) || 0;
-        const total = parseInt(plan.installments_total, 10) || 12;
-        if (paid < total) {
-          const newPaid = paid + 1;
-          const newRemInst = Math.max(0, total - newPaid);
-          const newRemBal = parseFloat(plan.monthly_amount) * newRemInst;
-          await dbRun(
-            'UPDATE installment_plans SET installments_paid = ?, remaining_balance = ? WHERE id = ?',
-            [newPaid, newRemBal, plan.id]
-          );
-        }
-      }
-    }
-
-    // 5. Record payment transaction for origin account
-    const today = new Date().toISOString().split('T')[0];
-    await dbRun(
-      `INSERT INTO transactions (date, type, amount, category, concept, account_id, source, status)
-       VALUES (?, 'payment', ?, 'Pago de Deuda', ?, ?, 'manual_confirm', 'confirmed')`,
-      [today, numAmount, `Pago a tarjeta / deuda: ${debt.name}`, originAccount.id]
-    );
-
-    // 6. Run complete sync across all cards and debts
-    await syncCreditCardsAndDebts();
-
-    res.json({ success: true, message: 'Pago registrado, mensualidades MSI avanzadas y saldos actualizados.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/debts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
-    if (debt) {
-      await dbRun('DELETE FROM installment_plans WHERE debt_id = ?', [id]);
-      await dbRun("DELETE FROM accounts WHERE name LIKE ? AND type = 'credit_card'", [debt.name]);
-
-      await dbRun('DELETE FROM debts WHERE id = ?', [id]);
-    }
-    res.json({ success: true, message: 'Deuda y sus planes asociados eliminados correctamente.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-app.get('/api/installment-plans', async (req, res) => {
-  try {
-    const plans = await dbAll('SELECT * FROM installment_plans ORDER BY id DESC');
-    res.json(plans);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/installment-plans/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await dbRun('DELETE FROM installment_plans WHERE id = ?', [id]);
-    await syncCreditCardsAndDebts();
-    res.json({ success: true, message: 'Plan a Meses Sin Intereses eliminado.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/installment-plans', async (req, res) => {
-  try {
-    let { debt_id, account_id, concept, total_amount, monthly_amount, installments_total, installments_paid = 0 } = req.body;
-    
-    const numMonthly = parseFloat(monthly_amount || 0);
-    const numTotalMonths = parseInt(installments_total || 12, 10);
-    const numPaidMonths = parseInt(installments_paid || 0, 10);
-    const numTotalAmount = parseFloat(total_amount || (numMonthly * numTotalMonths));
-
-    if (!concept || numMonthly <= 0 || numTotalMonths <= 0) {
-      return res.status(400).json({ error: 'Concepto, pago mensual y plazo total son requeridos.' });
-    }
-
-    // Try linking account_id and debt_id if only one was supplied
-    if (account_id && !debt_id) {
-      const acc = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
-      if (acc) {
-        const debt = await dbGet("SELECT * FROM debts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${acc.name.toLowerCase()}%`, acc.name]);
-        if (debt) debt_id = debt.id;
-      }
-    } else if (debt_id && !account_id) {
-      const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [debt_id]);
-      if (debt) {
-        const acc = await dbGet("SELECT * FROM accounts WHERE LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name)", [`%${debt.name.toLowerCase()}%`, debt.name]);
-        if (acc) account_id = acc.id;
-      }
-    }
-
-    const remainingInst = Math.max(0, numTotalMonths - numPaidMonths);
-    const remainingBalance = numMonthly * remainingInst;
-
-    const result = await dbRun(
-      `INSERT INTO installment_plans (debt_id, account_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [debt_id || null, account_id || null, concept, numTotalAmount, numMonthly, numTotalMonths, numPaidMonths, remainingBalance]
-    );
-
-    await syncCreditCardsAndDebts();
-
-    res.json({ success: true, plan_id: result.lastID, message: 'Plan a Meses Sin Intereses registrado.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/installment-plans/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    let { concept, monthly_amount, total_amount, installments_total, installments_paid, account_id, debt_id } = req.body;
-
-    const plan = await dbGet('SELECT * FROM installment_plans WHERE id = ?', [id]);
-    if (!plan) return res.status(404).json({ error: 'Plan de MSI no encontrado.' });
-
-    const newConcept = concept !== undefined ? concept : plan.concept;
-    const numMonthly = monthly_amount !== undefined ? parseFloat(monthly_amount) : plan.monthly_amount;
-    const numTotalMonths = installments_total !== undefined ? parseInt(installments_total, 10) : plan.installments_total;
-    const numPaidMonths = installments_paid !== undefined ? parseInt(installments_paid, 10) : plan.installments_paid;
-    const numTotalAmount = total_amount !== undefined ? parseFloat(total_amount) : (numMonthly * numTotalMonths);
-
-    const remainingInst = Math.max(0, numTotalMonths - numPaidMonths);
-    const remainingBalance = numMonthly * remainingInst;
-
-    await dbRun(
-      `UPDATE installment_plans SET
-        concept = ?,
-        monthly_amount = ?,
-        total_amount = ?,
-        installments_total = ?,
-        installments_paid = ?,
-        remaining_balance = ?,
-        account_id = COALESCE(?, account_id),
-        debt_id = COALESCE(?, debt_id)
-       WHERE id = ?`,
-      [newConcept, numMonthly, numTotalAmount, numTotalMonths, numPaidMonths, remainingBalance, account_id || null, debt_id || null, id]
-    );
-
-    await syncCreditCardsAndDebts();
-
-    res.json({ success: true, message: 'Plan a Meses Sin Intereses actualizado.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -982,136 +256,6 @@ app.post('/api/documents/scan', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/api/documents/reconcile', async (req, res) => {
-  try {
-    const { document_id, doc_type, account_id, debt_id, extracted_data } = req.body;
-    const today = new Date().toISOString().split('T')[0];
-
-    if (doc_type === 'payroll') {
-      const depositAmount = parseFloat(extracted_data.deposit_amount || 0);
-      const payrollLoansDeduction = parseFloat(extracted_data.payroll_loans_deduction || 0);
-
-      if (depositAmount > 0 && account_id) {
-        await processTransaction({
-          date: today,
-          type: 'income',
-          amount: depositAmount,
-          category: 'Nómina',
-          concept: `Nómina Escaneada - ${extracted_data.employer || 'Empresa'}`,
-          account_id: parseInt(account_id, 10),
-          source: 'document'
-        });
-      }
-
-      if (payrollLoansDeduction > 0) {
-        await dbRun(
-          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date)
-           VALUES (?, 'payroll_loan', ?, ?, ?, 0, ?)`,
-          [`Descuento de Nómina - ${extracted_data.employer || 'Empresa'}`, payrollLoansDeduction * 12, payrollLoansDeduction * 6, payrollLoansDeduction, today]
-        );
-      }
-    } else if (doc_type === 'credit_card') {
-      const totalBalance = parseFloat(extracted_data.total_balance || 0);
-      const availableCredit = parseFloat(extracted_data.available_credit || 0);
-      const minPayment = parseFloat(extracted_data.minimum_payment || 0);
-      const noInterestPayment = parseFloat(extracted_data.no_interest_payment || extracted_data.payment_for_no_interest || totalBalance || 0);
-      const interestRate = parseFloat(extracted_data.interest_rate || 0);
-      const dueDate = extracted_data.due_date || null;
-      const cutoffDate = extracted_data.cutoff_date || null;
-
-      let targetAccount = null;
-      let targetDebt = null;
-
-      if (account_id) {
-        targetAccount = await dbGet('SELECT * FROM accounts WHERE id = ?', [parseInt(account_id, 10)]);
-      }
-      if (debt_id) {
-        targetDebt = await dbGet('SELECT * FROM debts WHERE id = ?', [parseInt(debt_id, 10)]);
-      }
-
-      if (targetDebt && !targetAccount) {
-        targetAccount = await dbGet('SELECT * FROM accounts WHERE name LIKE ? OR name LIKE ?', [targetDebt.name, `%${targetDebt.name}%`]);
-      }
-      if (targetAccount && !targetDebt) {
-        targetDebt = await dbGet('SELECT * FROM debts WHERE name LIKE ? OR name LIKE ? OR id = ?', [targetAccount.name, `%${targetAccount.name}%`, targetAccount.id]);
-      }
-
-      const cardName = targetDebt?.name || targetAccount?.name || extracted_data.reference || 'Tarjeta de Crédito Escaneada';
-
-      // 1. UPDATE OR INSERT ACCOUNT
-      if (targetAccount) {
-        const calculatedLimit = targetAccount.credit_limit > 0 ? targetAccount.credit_limit : (totalBalance + availableCredit);
-        const calculatedAvailable = availableCredit > 0 ? availableCredit : Math.max(0, calculatedLimit - totalBalance);
-
-        await dbRun(
-          `UPDATE accounts SET 
-            balance = ?, 
-            available_credit = ?, 
-            credit_limit = ?, 
-            interest_rate = ?, 
-            due_date = ?, 
-            cutoff_date = ?,
-            min_payment = ?,
-            no_interest_payment = ?
-           WHERE id = ?`,
-          [totalBalance, calculatedAvailable, calculatedLimit, interestRate, dueDate, cutoffDate, minPayment, noInterestPayment, targetAccount.id]
-        );
-      } else {
-        const accRes = await dbRun(
-          `INSERT INTO accounts (name, type, balance, available_credit, credit_limit, interest_rate, due_date, cutoff_date, min_payment, no_interest_payment)
-           VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [cardName, totalBalance, availableCredit, totalBalance + availableCredit, interestRate, dueDate, cutoffDate, minPayment, noInterestPayment]
-        );
-        targetAccount = await dbGet('SELECT * FROM accounts WHERE id = ?', [accRes.lastID]);
-      }
-
-      // 2. UPDATE OR INSERT DEBT
-      let finalDebtId;
-      if (targetDebt) {
-        finalDebtId = targetDebt.id;
-        await dbRun(
-          `UPDATE debts SET 
-            current_balance = ?, 
-            payment_amount = ?, 
-            min_payment = ?,
-            no_interest_payment = ?,
-            interest_rate = ?, 
-            due_date = ?,
-            cutoff_date = ?
-           WHERE id = ?`,
-          [totalBalance, noInterestPayment, minPayment, noInterestPayment, interestRate, dueDate, cutoffDate, targetDebt.id]
-        );
-      } else {
-        const debtRes = await dbRun(
-          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date)
-           VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [cardName, totalBalance, totalBalance, noInterestPayment, minPayment, noInterestPayment, interestRate, dueDate, cutoffDate]
-        );
-        finalDebtId = debtRes.lastID;
-      }
-
-      // 3. Process MSI plans attached
-      if (extracted_data.msi_plans && Array.isArray(extracted_data.msi_plans)) {
-        for (const msi of extracted_data.msi_plans) {
-          await dbRun(
-            `INSERT INTO installment_plans (account_id, debt_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-            [targetAccount ? targetAccount.id : null, finalDebtId, msi.concept, msi.monthly_amount * (msi.remaining_installments || 6), msi.monthly_amount, msi.remaining_installments || 6, msi.monthly_amount * (msi.remaining_installments || 6)]
-          );
-        }
-      }
-    }
-
-    if (document_id) {
-      await dbRun("UPDATE documents SET reconciliation_status = 'reconciled' WHERE id = ?", [document_id]);
-    }
-
-    res.json({ success: true, message: 'Documento reconciliado e información financiera actualizada.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // FASE 5 COACH FINANCIERO & METAS
 app.get('/api/goals', async (req, res) => {
   try {
@@ -1157,12 +301,7 @@ app.post('/api/coach/chat', async (req, res) => {
   }
 });
 
-
-// =======================================================
 // FASE 6 — ANÁLISIS, PROYECCIONES & GASTOS RECURRENTES
-// =======================================================
-
-// 1. Full Analysis Endpoint (Charts data, categories breakdown, MoM, 30-day forecast)
 app.get('/api/analysis', async (req, res) => {
   try {
     const analysis = await getFullAnalysisData();
@@ -1172,7 +311,6 @@ app.get('/api/analysis', async (req, res) => {
   }
 });
 
-// 1b. Deep AI Analysis Endpoint (Powered by Gemini)
 app.post('/api/analysis/deep', async (req, res) => {
   try {
     const deepAnalysis = await generateDeepAnalysis();
@@ -1182,8 +320,6 @@ app.post('/api/analysis/deep', async (req, res) => {
   }
 });
 
-
-// 2. Recurring Expenses CRUD (Gastos Recurrentes)
 app.get('/api/recurring', async (req, res) => {
   try {
     const rows = await dbAll('SELECT r.*, a.name as account_name FROM recurring_expenses r LEFT JOIN accounts a ON r.account_id = a.id WHERE r.active = 1 ORDER BY r.id DESC');
@@ -1217,21 +353,6 @@ app.delete('/api/recurring/:id', async (req, res) => {
     const { id } = req.params;
     await dbRun('UPDATE recurring_expenses SET active = 0 WHERE id = ?', [id]);
     res.json({ success: true, message: 'Gasto recurrente eliminado.' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Reset all data (borrar datos de prueba)
-app.post('/api/reset', async (req, res) => {
-  try {
-    await dbRun('DELETE FROM transactions');
-    await dbRun('DELETE FROM accounts');
-    await dbRun('DELETE FROM investments');
-    await dbRun('DELETE FROM debts');
-    await dbRun('DELETE FROM debt_payments');
-    await dbRun('DELETE FROM recurring_expenses');
-    res.json({ success: true, message: 'Todos los datos han sido eliminados. Puedes empezar de cero.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
