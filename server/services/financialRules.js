@@ -145,11 +145,7 @@ async function syncCreditCardsAndDebts() {
       const netTxBalance = Math.max(0, parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments));
 
       const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debtId, netTxBalance);
-      let newAccBalance = msiBreakdown.cardBalance;
-      if (matchingDebt && parseFloat(matchingDebt.current_balance) < newAccBalance && parseFloat(matchingDebt.current_balance) > 0) {
-        newAccBalance = parseFloat(matchingDebt.current_balance);
-      }
-
+      const newAccBalance = msiBreakdown.cardBalance;
       const calculatedNoInterest = msiBreakdown.noInterestPayment;
       const creditLimit = parseFloat(acc.credit_limit || 0);
       const newAvailable = creditLimit > 0 ? Math.max(0, creditLimit - newAccBalance) : parseFloat(acc.available_credit || 0);
@@ -203,8 +199,25 @@ async function syncCreditCardsAndDebts() {
         [debt.name, `%${debt.name.toLowerCase()}%`, debt.name]
       );
       if (acc) {
-        let newBal = parseFloat(debt.current_balance);
-        const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debt.id, newBal);
+        const rawCutoff = acc.cutoff_date || debt.cutoff_date;
+        const cutoffThreshold = getCutoffDateThreshold(rawCutoff);
+        let txQuery = `
+          SELECT 
+            COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
+            COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
+          FROM transactions 
+          WHERE account_id = ?
+        `;
+        const txParams = [acc.id];
+        if (cutoffThreshold) {
+          txQuery += ' AND date > ?';
+          txParams.push(cutoffThreshold);
+        }
+        const txRow = await dbGet(txQuery, txParams);
+        const netTxBalance = Math.max(0, parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments));
+
+        const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debt.id, netTxBalance);
+        const newBal = msiBreakdown.cardBalance;
         const calculatedNoInterest = msiBreakdown.noInterestPayment;
 
         const limit = parseFloat(acc.credit_limit || 0);
