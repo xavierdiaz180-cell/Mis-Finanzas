@@ -3,56 +3,64 @@ const { calculateFinancialMetrics } = require('./financialRules');
 const { enrichAccountsWithMSIData } = require('./creditCardService');
 
 /**
- * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2
+ * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2 (Phase 2B.1)
  */
 
-/**
- * METRIC-001 & METRIC-002: Available Money, Net Worth, Income, Expenses, Cash Flow Snapshot
- */
 async function getSummaryMetrics() {
   const baseMetrics = await calculateFinancialMetrics();
   const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1');
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
-  // Liquid Accounts sum (bank, payroll, cash)
-  const liquidAssets = enrichedAccounts
+  // 1. LIQUID MONEY (Nómina, Débito, Efectivo, Ahorro)
+  const liquidMoney = enrichedAccounts
     .filter(a => a.type !== 'credit_card')
     .reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
 
-  // Investment Value sum
+  // 2. INVESTMENT VALUE (All investments)
   const investments = await dbAll('SELECT * FROM investments');
   const investmentValue = investments.reduce((sum, i) => sum + (parseFloat(i.current_value || i.current_documented_value) || 0), 0);
 
-  // Available Money = Liquid Assets + Investment Value
-  const availableMoney = liquidAssets + investmentValue;
+  // 3. REALIZABLE INVESTMENTS (is_liquid = true OR liquidity_status = 'LIQUIDA')
+  const realizableInvestments = investments
+    .filter(i => (i.is_liquid === true || i.is_liquid === 1 || i.is_liquid === 'true' || i.liquidity_status === 'LIQUIDA' || !i.liquidity_status))
+    .reduce((sum, i) => sum + (parseFloat(i.current_value || i.current_documented_value) || 0), 0);
 
-  // Credit Card Debt sum
+  // 4. SPENDABLE MONEY (Liquid Money + Realizable Investments)
+  const spendableMoney = liquidMoney + realizableInvestments;
+
+  // 5. AVAILABLE MONEY (Liquid Money + Investment Value)
+  const availableMoney = liquidMoney + investmentValue;
+
+  // 6. CREDIT CARD DEBT
   const creditCardDebt = enrichedAccounts
     .filter(a => a.type === 'credit_card')
     .reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
 
-  // Other Debts sum
+  // 7. LOAN & OTHER DEBTS
   const debts = await dbAll("SELECT * FROM debts WHERE type != 'credit_card' OR account_id IS NULL");
   const loanDebt = debts.reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
 
+  // 8. TOTAL DEBT & NET WORTH
   const totalDebt = creditCardDebt + loanDebt;
-  const netWorth = availableMoney - totalDebt;
+  const totalAssets = liquidMoney + investmentValue;
+  const netWorth = totalAssets - totalDebt;
 
   return {
     ...baseMetrics,
-    available_money: availableMoney,
-    liquid_assets: liquidAssets,
+    liquid_money: liquidMoney,
     investment_value: investmentValue,
-    total_debt: totalDebt,
+    realizable_investments: realizableInvestments,
+    spendable_money: spendableMoney,
+    available_money: availableMoney,
+    liquid_assets: liquidMoney,
     credit_card_debt: creditCardDebt,
     loan_debt: loanDebt,
+    total_debt: totalDebt,
+    total_assets: totalAssets,
     net_worth: netWorth
   };
 }
 
-/**
- * METRIC-013: Cash Flow calculation (Real liquid movement)
- */
 async function getCashFlow(periodMonths = 1) {
   const today = new Date();
   const startDate = new Date(today.getFullYear(), today.getMonth() - periodMonths + 1, 1).toISOString().split('T')[0];
@@ -70,7 +78,7 @@ async function getCashFlow(periodMonths = 1) {
   rows.forEach(t => {
     const amt = parseFloat(t.amount) || 0;
     if (t.type === 'income') liquidIncome += amt;
-    else if (t.type === 'expense') liquidExpense += amt;
+    else if (t.type === 'expense' || t.type === 'card_purchase') liquidExpense += amt;
     else if (t.type === 'investment_contribution' || t.type === 'investment_deposit') investmentContributions += amt;
     else if (t.type === 'investment_withdrawal') investmentWithdrawals += amt;
   });
@@ -87,9 +95,6 @@ async function getCashFlow(periodMonths = 1) {
   };
 }
 
-/**
- * METRIC-013b: Upcoming Obligations & Payments
- */
 async function getUpcomingPayments() {
   const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
   const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE active = 1');
@@ -135,17 +140,12 @@ async function getUpcomingPayments() {
   };
 }
 
-/**
- * METRIC-014 to METRIC-016: Timelines for Available Money, Net Worth, Debt, and Investments
- */
 async function getTimelines() {
   const summary = await getSummaryMetrics();
   const investments = await dbAll('SELECT * FROM investments');
-  const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1');
-  const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
 
   const availableMoneyTimeline = [
-    { date: new Date().toISOString().split('T')[0], available_money: summary.available_money }
+    { date: new Date().toISOString().split('T')[0], available_money: summary.available_money, spendable_money: summary.spendable_money }
   ];
 
   const netWorthTimeline = [
@@ -164,6 +164,7 @@ async function getTimelines() {
   const investmentTimeline = investments.map(inv => ({
     id: inv.id,
     name: inv.name,
+    is_liquid: inv.is_liquid !== false && inv.liquidity_status !== 'NO_LIQUIDA',
     contributed: parseFloat(inv.capital_contributed || inv.invested_amount || 0),
     withdrawals: parseFloat(inv.withdrawals_total || 0),
     current_value: parseFloat(inv.current_value || inv.current_documented_value || 0),

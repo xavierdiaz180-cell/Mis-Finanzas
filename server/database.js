@@ -132,10 +132,15 @@ async function initDatabase() {
       invested_amount REAL DEFAULT 0,
       current_documented_value REAL DEFAULT 0,
       risk_level TEXT DEFAULT 'medium' CHECK(risk_level IN ('low', 'medium', 'high')),
+      is_liquid BOOLEAN DEFAULT true,
+      liquidity_status TEXT DEFAULT 'LIQUIDA',
       last_update TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS is_liquid BOOLEAN DEFAULT true`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS liquidity_status TEXT DEFAULT 'LIQUIDA'`).catch(() => {});
 
   // 5. Debts/Loans
   await pool.query(`
