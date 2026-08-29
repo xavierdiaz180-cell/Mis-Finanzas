@@ -733,53 +733,84 @@ app.put('/api/debts/:id', async (req, res) => {
 app.post('/api/debts/:id/pay', async (req, res) => {
   try {
     const { id } = req.params;
-    const { account_id, amount } = req.body;
+    const { account_id, amount, advance_msi = true } = req.body;
 
     if (!account_id || !amount || amount <= 0) {
       return res.status(400).json({ error: 'Cuenta de origen y monto válido son requeridos.' });
     }
 
     const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
-    const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
+    const originAccount = await dbGet('SELECT * FROM accounts WHERE id = ?', [account_id]);
 
-    if (!debt || !account) return res.status(404).json({ error: 'Deuda o cuenta no encontrada.' });
+    if (!debt || !originAccount) return res.status(404).json({ error: 'Deuda o cuenta de origen no encontrada.' });
 
-    const newDebtBalance = Math.max(0, debt.current_balance - parseFloat(amount));
-    const newRemainingPayments = debt.remaining_payments > 0 ? debt.remaining_payments - 1 : 0;
+    const numAmount = parseFloat(amount);
 
-    await dbRun(
-      'UPDATE debts SET current_balance = ?, remaining_payments = ? WHERE id = ?',
-      [newDebtBalance, newRemainingPayments, id]
-    );
-
-    // Update origin account (e.g. debit account used to pay)
-    if (account.type === 'credit_card') {
-      await dbRun('UPDATE accounts SET available_credit = available_credit + ? WHERE id = ?', [parseFloat(amount), account_id]);
+    // 1. Deduct payment from origin account (e.g., BBVA Nómina)
+    if (originAccount.type === 'credit_card') {
+      const newAvail = Math.max(0, (parseFloat(originAccount.available_credit) || 0) - numAmount);
+      const newBal = (parseFloat(originAccount.balance) || 0) + numAmount;
+      await dbRun('UPDATE accounts SET available_credit = ?, balance = ? WHERE id = ?', [newAvail, newBal, originAccount.id]);
     } else {
-      await dbRun('UPDATE accounts SET balance = balance - ? WHERE id = ?', [parseFloat(amount), account_id]);
+      const newBal = (parseFloat(originAccount.balance) || 0) - numAmount;
+      await dbRun('UPDATE accounts SET balance = ? WHERE id = ?', [newBal, originAccount.id]);
     }
 
-    // If debt is a credit card, also update the target credit card account's balance and available_credit
-    if (debt.type === 'credit_card') {
-      const ccAccount = await dbGet("SELECT * FROM accounts WHERE type = 'credit_card' AND (name LIKE ? OR name LIKE ?)", [debt.name, `%${debt.name}%`]);
-      if (ccAccount) {
-        await dbRun(
-          'UPDATE accounts SET balance = GREATEST(0, balance - ?), available_credit = available_credit + ? WHERE id = ?',
-          [parseFloat(amount), parseFloat(amount), ccAccount.id]
-        );
+    // 2. Reduce debt balance
+    const newDebtBalance = Math.max(0, (parseFloat(debt.current_balance) || 0) - numAmount);
+    const newRemainingPayments = debt.remaining_payments > 0 ? debt.remaining_payments - 1 : 0;
+    await dbRun(
+      'UPDATE debts SET current_balance = ?, remaining_payments = ? WHERE id = ?',
+      [newDebtBalance, newRemainingPayments, debt.id]
+    );
+
+    // 3. Find and update target credit card account balance & available credit
+    const targetCC = await dbGet(
+      "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+      [debt.name, `%${debt.name.toLowerCase()}%`, debt.name]
+    );
+
+    if (targetCC) {
+      const newTargetBal = Math.max(0, (parseFloat(targetCC.balance) || 0) - numAmount);
+      const limit = parseFloat(targetCC.credit_limit || 0);
+      const newTargetAvail = limit > 0 ? Math.min(limit, limit - newTargetBal) : ((parseFloat(targetCC.available_credit) || 0) + numAmount);
+      await dbRun('UPDATE accounts SET balance = ?, available_credit = ? WHERE id = ?', [newTargetBal, newTargetAvail, targetCC.id]);
+    }
+
+    // 4. Advance active MSI plans for this card if advance_msi is true
+    if (advance_msi) {
+      const activePlans = await dbAll(
+        'SELECT * FROM installment_plans WHERE debt_id = ? OR account_id = ?',
+        [debt.id, targetCC ? targetCC.id : null]
+      );
+
+      for (const plan of activePlans) {
+        const paid = parseInt(plan.installments_paid, 10) || 0;
+        const total = parseInt(plan.installments_total, 10) || 12;
+        if (paid < total) {
+          const newPaid = paid + 1;
+          const newRemInst = Math.max(0, total - newPaid);
+          const newRemBal = parseFloat(plan.monthly_amount) * newRemInst;
+          await dbRun(
+            'UPDATE installment_plans SET installments_paid = ?, remaining_balance = ? WHERE id = ?',
+            [newPaid, newRemBal, plan.id]
+          );
+        }
       }
     }
 
-
+    // 5. Record payment transaction for origin account
     const today = new Date().toISOString().split('T')[0];
-
     await dbRun(
       `INSERT INTO transactions (date, type, amount, category, concept, account_id, source, status)
        VALUES (?, 'payment', ?, 'Pago de Deuda', ?, ?, 'manual_confirm', 'confirmed')`,
-      [today, parseFloat(amount), `Pago a deuda: ${debt.name}`, account_id]
+      [today, numAmount, `Pago a tarjeta / deuda: ${debt.name}`, originAccount.id]
     );
 
-    res.json({ success: true, message: 'Pago a deuda registrado y saldos actualizados.' });
+    // 6. Run complete sync across all cards and debts
+    await syncCreditCardsAndDebts();
+
+    res.json({ success: true, message: 'Pago registrado, mensualidades MSI avanzadas y saldos actualizados.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

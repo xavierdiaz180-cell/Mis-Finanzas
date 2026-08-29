@@ -55,9 +55,40 @@ async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
 
 async function syncCreditCardsAndDebts() {
   try {
+    // 0. Auto-relink installment_plans to live account_id and debt_id by card name
+    const allPlans = await dbAll('SELECT * FROM installment_plans');
+    const allAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
+    const allDebts = await dbAll("SELECT * FROM debts WHERE type = 'credit_card'");
+
+    for (const plan of allPlans) {
+      let targetAcc = allAccounts.find(a => a.id === plan.account_id);
+      let targetDebt = allDebts.find(d => d.id === plan.debt_id);
+
+      if (!targetAcc && targetDebt) {
+        targetAcc = allAccounts.find(a => a.name.toLowerCase() === targetDebt.name.toLowerCase());
+      }
+      if (!targetDebt && targetAcc) {
+        targetDebt = allDebts.find(d => d.name.toLowerCase() === targetAcc.name.toLowerCase());
+      }
+      if (!targetAcc && !targetDebt && plan.concept) {
+        targetAcc = allAccounts.find(a => plan.concept.toLowerCase().includes(a.name.toLowerCase()));
+        if (targetAcc) {
+          targetDebt = allDebts.find(d => d.name.toLowerCase() === targetAcc.name.toLowerCase());
+        }
+      }
+
+      if (targetAcc || targetDebt) {
+        const newAccId = targetAcc ? targetAcc.id : plan.account_id;
+        const newDebtId = targetDebt ? targetDebt.id : plan.debt_id;
+        if (newAccId !== plan.account_id || newDebtId !== plan.debt_id) {
+          await dbRun('UPDATE installment_plans SET account_id = ?, debt_id = ? WHERE id = ?', [newAccId, newDebtId, plan.id]);
+        }
+      }
+    }
+
+    // 1. Sync accounts to debts and calculate MSI breakdowns
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
     for (const acc of creditAccounts) {
-      // 1. Calculate sum of expense transactions vs payments for this account
       const txRow = await dbGet(`
         SELECT 
           COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
@@ -67,18 +98,19 @@ async function syncCreditCardsAndDebts() {
       `, [acc.id]);
 
       const netTxBalance = parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments);
-      
-      let newAccBalance = parseFloat(acc.balance || 0);
-      if (netTxBalance > 0 && newAccBalance < netTxBalance) {
-        newAccBalance = netTxBalance;
-      }
 
-      // Find matching debt in `debts` table first to query MSI plans accurately
       const matchingDebt = await dbGet(
-        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-        [`%${acc.name.toLowerCase()}%`, `%${acc.name.toLowerCase()}%`, acc.name]
+        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+        [acc.name, `%${acc.name.toLowerCase()}%`, acc.name]
       );
       const debtId = matchingDebt ? matchingDebt.id : null;
+
+      let newAccBalance = parseFloat(acc.balance || 0);
+      if (matchingDebt && parseFloat(matchingDebt.current_balance) < newAccBalance) {
+        newAccBalance = parseFloat(matchingDebt.current_balance);
+      } else if (netTxBalance > 0 && newAccBalance < netTxBalance) {
+        newAccBalance = netTxBalance;
+      }
 
       const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debtId, newAccBalance);
       const calculatedNoInterest = msiBreakdown.noInterestPayment;
@@ -92,12 +124,7 @@ async function syncCreditCardsAndDebts() {
       );
 
       if (matchingDebt) {
-        let newDebtBalance = parseFloat(matchingDebt.current_balance || 0);
-        if (newAccBalance > newDebtBalance) {
-          newDebtBalance = newAccBalance;
-        }
-
-        const minPayment = parseFloat(acc.min_payment || matchingDebt.min_payment || (newDebtBalance * 0.05));
+        const minPayment = parseFloat(acc.min_payment || matchingDebt.min_payment || (newAccBalance * 0.05));
         const cutoffDate = acc.cutoff_date || matchingDebt.cutoff_date || null;
         const dueDate = acc.due_date || matchingDebt.due_date || null;
         const interestRate = parseFloat(acc.interest_rate || matchingDebt.interest_rate || 0);
@@ -111,7 +138,7 @@ async function syncCreditCardsAndDebts() {
             due_date = ?,
             interest_rate = ?
            WHERE id = ?`,
-          [newDebtBalance, minPayment, calculatedNoInterest, cutoffDate, dueDate, interestRate, matchingDebt.id]
+          [newAccBalance, minPayment, calculatedNoInterest, cutoffDate, dueDate, interestRate, matchingDebt.id]
         );
       } else {
         await dbRun(
@@ -132,24 +159,20 @@ async function syncCreditCardsAndDebts() {
       }
     }
 
+    // 2. Sync debts to accounts if debt is present
     const debts = await dbAll("SELECT * FROM debts WHERE type = 'credit_card'");
     for (const debt of debts) {
       const acc = await dbGet(
-        "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-        [`%${debt.name.toLowerCase()}%`, `%${debt.name.toLowerCase()}%`, debt.name]
+        "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
+        [debt.name, `%${debt.name.toLowerCase()}%`, debt.name]
       );
       if (acc) {
-        let newBal = parseFloat(acc.balance || 0);
-        if (parseFloat(debt.current_balance || 0) > newBal) {
-          newBal = parseFloat(debt.current_balance || 0);
-        }
-
+        let newBal = parseFloat(debt.current_balance);
         const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debt.id, newBal);
         const calculatedNoInterest = msiBreakdown.noInterestPayment;
 
         const limit = parseFloat(acc.credit_limit || 0);
         const avail = limit > 0 ? Math.max(0, limit - newBal) : parseFloat(acc.available_credit || 0);
-
         const minPay = parseFloat(acc.min_payment || debt.min_payment || (newBal * 0.05));
         const cutoff = acc.cutoff_date || debt.cutoff_date || null;
         const due = acc.due_date || debt.due_date || null;
