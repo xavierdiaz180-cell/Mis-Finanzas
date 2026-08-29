@@ -17,6 +17,9 @@ const { parseVoiceDictation, analyzeDocument } = require('./services/geminiServi
 const { generateCoachChatResponse, getCoachRecommendations, generateDeepAnalysis } = require('./services/coachService');
 const { getFullAnalysisData, getChartsData } = require('./services/analysisService');
 
+const authController = require('./controllers/authController');
+const { requireAuth } = require('./middleware/authMiddleware');
+
 dotenv.config();
 
 const app = express();
@@ -44,7 +47,10 @@ initDatabase().catch(err => {
   console.error('Error al inicializar la base de datos:', err);
 });
 
-// Health check
+// Public Auth Endpoints
+app.post('/api/auth/login', authController.login);
+
+// Health check (Public)
 app.get('/api/health', async (req, res) => {
   try {
     const dbCheck = await dbGet('SELECT 1 as test');
@@ -58,6 +64,10 @@ app.get('/api/health', async (req, res) => {
     res.status(500).json({ status: 'error', database: 'disconnected', message: error.message });
   }
 });
+
+// Protect all remaining /api endpoints
+app.use('/api', requireAuth);
+app.get('/api/auth/me', authController.me);
 
 // Settings
 app.get('/api/settings', async (req, res) => {

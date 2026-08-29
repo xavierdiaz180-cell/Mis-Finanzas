@@ -152,7 +152,7 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, credit_card_id]);
 
     // Update debts table using account_id (strict ID relation, zero string matching)
-    await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE account_id = $2 OR type = 'credit_card' AND id = $2", [numAmount, credit_card_id]);
+    await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND account_id = $2", [numAmount, credit_card_id]);
 
     const txRes = await client.query(
       `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status, transaction_datetime)
@@ -215,7 +215,7 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newCardBal, newAvail, credit_card_id]);
 
     // Update debts table using strict account_id relation
-    await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE account_id = $2 OR type = 'credit_card' AND id = $2", [numAmount, credit_card_id]);
+    await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND account_id = $2", [numAmount, credit_card_id]);
 
     const txRes = await client.query(
       `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, transaction_datetime)

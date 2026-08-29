@@ -128,8 +128,8 @@ async function syncCreditCardsAndDebts() {
 
       let txQuery = `
         SELECT 
-          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
-          COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
+          COALESCE(SUM(CASE WHEN type IN ('expense', 'card_purchase') THEN amount ELSE 0 END), 0) as total_expenses,
+          COALESCE(SUM(CASE WHEN type IN ('payment', 'income', 'card_payment') THEN amount ELSE 0 END), 0) as total_payments
         FROM transactions 
         WHERE account_id = ?
       `;
@@ -204,8 +204,8 @@ async function syncCreditCardsAndDebts() {
         const cutoffThreshold = getCutoffDateThreshold(rawCutoff);
         let txQuery = `
           SELECT 
-            COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
-            COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
+            COALESCE(SUM(CASE WHEN type IN ('expense', 'card_purchase') THEN amount ELSE 0 END), 0) as total_expenses,
+            COALESCE(SUM(CASE WHEN type IN ('payment', 'income', 'card_payment') THEN amount ELSE 0 END), 0) as total_payments
           FROM transactions 
           WHERE account_id = ?
         `;

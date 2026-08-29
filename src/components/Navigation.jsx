@@ -12,8 +12,11 @@ import {
   Database,
   Eye,
   EyeOff,
-  LineChart
+  LineChart,
+  LogOut,
+  User
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export const TABS = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
@@ -29,6 +32,8 @@ export const TABS = [
 ];
 
 export default function Navigation({ activeTab, setActiveTab, apiStatus, hideValues, onToggleHideValues }) {
+  const { user, logout } = useAuth();
+
   return (
     <header className="glass-header">
       <div className="nav-container">
@@ -83,6 +88,31 @@ export default function Navigation({ activeTab, setActiveTab, apiStatus, hideVal
             <Database size={13} />
             <span>{apiStatus === 'online' ? 'DB Conectada' : 'Conectando...'}</span>
           </div>
+
+          {user && (
+            <button
+              type="button"
+              onClick={logout}
+              className="nav-tab-btn"
+              title={`Cerrar sesión (${user.email})`}
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#f87171',
+                padding: '0.45rem 0.85rem',
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontSize: '0.82rem',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              <LogOut size={15} />
+              <span>Salir</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

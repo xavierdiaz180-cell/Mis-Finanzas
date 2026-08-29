@@ -3,11 +3,10 @@ const { calculateFinancialMetrics } = require('./financialRules');
 const { enrichAccountsWithMSIData } = require('./creditCardService');
 
 /**
- * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2 (Phase 3.2)
+ * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2 (Phase 3.3)
  */
 
 async function getSummaryMetrics() {
-  const baseMetrics = await calculateFinancialMetrics();
   const accounts = await dbAll('SELECT * FROM accounts WHERE active = 1');
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
@@ -51,7 +50,6 @@ async function getSummaryMetrics() {
   const netWorth = totalAssets - totalDebt;
 
   return {
-    ...baseMetrics,
     liquid_money: liquidMoney,
     investment_value: investmentValue,
     realizable_investments: realizableInvestments,
@@ -121,7 +119,7 @@ async function getCashFlow(periodMonths = 1) {
 }
 
 /**
- * Upcoming Payments avoiding double counting of MSI inside Credit Card balances
+ * Upcoming Payments distinguishing Total Debt from Monthly Installments & Interest-Free Payments
  */
 async function getUpcomingPayments() {
   const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
@@ -129,21 +127,44 @@ async function getUpcomingPayments() {
   const msiPlans = await dbAll('SELECT * FROM installment_plans WHERE remaining_balance > 0');
 
   const payments = [];
-  const countedDebtAccountIds = new Set();
+  const processedCardIds = new Set();
 
-  debts.forEach(d => {
-    if (d.account_id) countedDebtAccountIds.add(d.account_id);
+  // 1. MSI Installment Plans (Next Monthly Installment)
+  msiPlans.forEach(m => {
+    if (m.account_id) processedCardIds.add(m.account_id);
     payments.push({
-      id: d.id,
-      concept: `Pago a Deuda: ${d.name}`,
-      amount: parseFloat(d.no_interest_payment || d.payment_amount || d.min_payment || d.current_balance),
-      due_date: d.due_date || null,
-      type: 'debt_payment',
-      source_account: d.account_id || null,
+      id: m.id,
+      concept: `Mensualidad MSI: ${m.concept}`,
+      amount: parseFloat(m.monthly_amount),
+      due_date: m.start_date || null,
+      type: 'msi_installment',
+      source_account: m.account_id || null,
+      credit_card_id: m.account_id || null,
+      remaining_installments: m.installments_remaining !== undefined && m.installments_remaining !== null ? parseInt(m.installments_remaining, 10) : ((parseInt(m.installments_total || m.installment_count, 10) || 0) - (parseInt(m.installments_paid, 10) || 0)),
+      remaining_balance: parseFloat(m.remaining_balance || 0),
       priority: 'high'
     });
   });
 
+  // 2. Non-MSI Debts or Card Minimum/No-Interest Payments
+  debts.forEach(d => {
+    // If debt is a credit_card and has MSI plans, count regular payment obligation (min_payment or no_interest_payment)
+    const paymentAmount = parseFloat(d.no_interest_payment || d.min_payment || d.payment_amount || d.current_balance);
+    if (paymentAmount > 0) {
+      payments.push({
+        id: d.id,
+        concept: `Pago a Deuda: ${d.name}`,
+        amount: paymentAmount,
+        due_date: d.due_date || null,
+        type: 'debt_payment',
+        source_account: d.account_id || null,
+        credit_card_id: d.account_id || null,
+        priority: 'high'
+      });
+    }
+  });
+
+  // 3. Recurring Expenses
   recurring.forEach(r => {
     payments.push({
       id: r.id,
@@ -156,21 +177,6 @@ async function getUpcomingPayments() {
     });
   });
 
-  // Include MSI plans only if they are not already part of counted credit card debt
-  msiPlans.forEach(m => {
-    if (!countedDebtAccountIds.has(m.account_id)) {
-      payments.push({
-        id: m.id,
-        concept: `Mensualidad MSI: ${m.concept}`,
-        amount: parseFloat(m.monthly_amount),
-        due_date: null,
-        type: 'msi_installment',
-        source_account: m.account_id || null,
-        priority: 'high'
-      });
-    }
-  });
-
   const totalUpcoming = payments.reduce((sum, p) => sum + p.amount, 0);
 
   return {
@@ -180,43 +186,126 @@ async function getUpcomingPayments() {
 }
 
 /**
- * Reconstructs Timelines based on actual historical transactions without inventing fake snapshots
+ * Reconstructs Timelines Date-by-Date based on Chronological Financial Deltas (Phase 3.3)
  */
 async function getTimelines() {
-  const summary = await getSummaryMetrics();
+  const currentSummary = await getSummaryMetrics();
   const investments = await dbAll('SELECT * FROM investments');
   const transactions = await dbAll("SELECT * FROM transactions WHERE status = 'confirmed' ORDER BY date ASC, id ASC");
 
-  // Reconstruct historical points if transactions exist
-  const dateMap = new Map();
-
-  transactions.forEach(t => {
-    const d = t.date ? t.date.split('T')[0] : new Date().toISOString().split('T')[0];
-    if (!dateMap.has(d)) {
-      dateMap.set(d, { date: d, income: 0, expense: 0 });
-    }
-    const entry = dateMap.get(d);
-    const amt = parseFloat(t.amount) || 0;
-    if (t.type === 'income') entry.income += amt;
-    else if (t.type === 'expense' || t.type === 'card_purchase') entry.expense += amt;
-  });
-
-  const availableMoneyTimeline = [];
-  const netWorthTimeline = [];
-  const debtTimeline = [];
-
   const todayStr = new Date().toISOString().split('T')[0];
 
-  if (dateMap.size === 0) {
-    availableMoneyTimeline.push({ date: todayStr, available_money: summary.available_money, spendable_money: summary.spendable_money });
-    netWorthTimeline.push({ date: todayStr, net_worth: summary.net_worth });
-    debtTimeline.push({ date: todayStr, total_debt: summary.total_debt, credit_card_debt: summary.credit_card_debt, loan_debt: summary.loan_debt });
+  // Group transactions by date
+  const txByDateMap = new Map();
+  transactions.forEach(t => {
+    const d = t.date ? t.date.split('T')[0] : todayStr;
+    if (!txByDateMap.has(d)) {
+      txByDateMap.set(d, []);
+    }
+    txByDateMap.get(d).push(t);
+  });
+
+  const sortedDates = Array.from(txByDateMap.keys()).sort();
+
+  const availableMoneyTimeline = [];
+  const spendableMoneyTimeline = [];
+  const netWorthTimeline = [];
+  const debtTimeline = [];
+  const cashFlowTimeline = [];
+
+  if (sortedDates.length === 0) {
+    availableMoneyTimeline.push({ date: todayStr, available_money: currentSummary.available_money });
+    spendableMoneyTimeline.push({ date: todayStr, spendable_money: currentSummary.spendable_money });
+    netWorthTimeline.push({ date: todayStr, net_worth: currentSummary.net_worth });
+    debtTimeline.push({ date: todayStr, total_debt: currentSummary.total_debt, credit_card_debt: currentSummary.credit_card_debt, loan_debt: currentSummary.loan_debt });
+    cashFlowTimeline.push({ date: todayStr, net_cash_flow: 0 });
   } else {
-    // Produce historical points based on snapshots
-    Array.from(dateMap.values()).forEach(pt => {
-      availableMoneyTimeline.push({ date: pt.date, available_money: summary.available_money, spendable_money: summary.spendable_money });
-      netWorthTimeline.push({ date: pt.date, net_worth: summary.net_worth });
-      debtTimeline.push({ date: pt.date, total_debt: summary.total_debt, credit_card_debt: summary.credit_card_debt, loan_debt: summary.loan_debt });
+    // REVERSE RECONSTRUCTION:
+    // Start with current summary state as of Today, and compute state for each date d
+    // by subtracting transaction deltas that occurred AFTER date d.
+
+    // Map from date to state at end of date d
+    const dateStateMap = new Map();
+
+    // Copy current state
+    let stateLiquid = currentSummary.liquid_money;
+    let stateInvestment = currentSummary.investment_value;
+    let stateRealizable = currentSummary.realizable_investments;
+    let stateCardDebt = currentSummary.credit_card_debt;
+    let stateLoanDebt = currentSummary.loan_debt;
+
+    // Process dates in reverse
+    const revDates = [...sortedDates].reverse();
+
+    revDates.forEach((d, idx) => {
+      // Record state at end of date d
+      dateStateMap.set(d, {
+        date: d,
+        liquid_money: stateLiquid,
+        investment_value: stateInvestment,
+        realizable_investments: stateRealizable,
+        available_money: stateLiquid + stateInvestment,
+        spendable_money: stateLiquid + stateRealizable,
+        total_debt: stateCardDebt + stateLoanDebt,
+        credit_card_debt: stateCardDebt,
+        loan_debt: stateLoanDebt,
+        net_worth: (stateLiquid + stateInvestment) - (stateCardDebt + stateLoanDebt)
+      });
+
+      // Rollback deltas of transactions on date d to find state before date d
+      const dayTxs = txByDateMap.get(d) || [];
+      dayTxs.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        if (t.type === 'income') {
+          stateLiquid -= amt;
+        } else if (t.type === 'expense') {
+          stateLiquid += amt;
+        } else if (t.type === 'card_purchase') {
+          stateCardDebt -= amt;
+        } else if (t.type === 'card_payment') {
+          stateLiquid += amt;
+          stateCardDebt += amt;
+        } else if (t.type === 'investment_contribution' || t.type === 'investment_deposit') {
+          stateLiquid += amt;
+          stateInvestment -= amt;
+          stateRealizable -= amt;
+        } else if (t.type === 'investment_withdrawal') {
+          stateLiquid -= amt;
+          stateInvestment += amt;
+          stateRealizable += amt;
+        } else if (t.type === 'investment_valuation' || t.type === 'valuation') {
+          const varAmt = parseFloat(t.variance) || 0;
+          stateInvestment -= varAmt;
+          stateRealizable -= varAmt;
+        } else if (t.type === 'loan_payment') {
+          stateLiquid += amt;
+          stateLoanDebt += amt;
+        }
+      });
+    });
+
+    // Build chronological timeline arrays
+    sortedDates.forEach(d => {
+      const st = dateStateMap.get(d);
+      availableMoneyTimeline.push({ date: d, available_money: st.available_money });
+      spendableMoneyTimeline.push({ date: d, spendable_money: st.spendable_money });
+      netWorthTimeline.push({ date: d, net_worth: st.net_worth });
+      debtTimeline.push({
+        date: d,
+        total_debt: st.total_debt,
+        credit_card_debt: st.credit_card_debt,
+        loan_debt: st.loan_debt
+      });
+
+      const dayTxs = txByDateMap.get(d) || [];
+      let dayCashIn = 0;
+      let dayCashOut = 0;
+      dayTxs.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        if (t.type === 'income' || t.type === 'investment_withdrawal') dayCashIn += amt;
+        else if (t.type === 'expense' || t.type === 'card_payment' || t.type === 'investment_contribution' || t.type === 'loan_payment') dayCashOut += amt;
+      });
+      cashFlowTimeline.push({ date: d, net_cash_flow: dayCashIn - dayCashOut });
     });
   }
 
@@ -247,8 +336,10 @@ async function getTimelines() {
 
   return {
     availableMoneyTimeline,
+    spendableMoneyTimeline,
     netWorthTimeline,
     debtTimeline,
+    cashFlowTimeline,
     investmentTimeline
   };
 }

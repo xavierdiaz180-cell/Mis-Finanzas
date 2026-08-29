@@ -33,7 +33,7 @@ async function registerExistingMSI({
     if (!card) throw new Error('Tarjeta de crédito no encontrada.');
 
     // Find matching debt record using strict account_id relationship
-    const debtRes = await client.query("SELECT * FROM debts WHERE account_id = $1 OR (type = 'credit_card' AND id = $1)", [credit_card_id]);
+    const debtRes = await client.query("SELECT * FROM debts WHERE account_id = $1", [credit_card_id]);
     const debtId = debtRes.rows[0]?.id || null;
 
     const msiRes = await client.query(
@@ -71,7 +71,7 @@ async function enrichAccountsWithMSIData(accounts = []) {
 
   return accounts.map(acc => {
     if (acc.type === 'credit_card') {
-      const matchingDebts = debts.filter(d => d.account_id === acc.id || d.id === acc.id);
+      const matchingDebts = debts.filter(d => d.account_id === acc.id);
       const debtIds = matchingDebts.map(d => d.id);
 
       const msiPlans = installmentPlans.filter(p => p.account_id === acc.id || debtIds.includes(p.debt_id));

@@ -337,6 +337,17 @@ async function initDatabase() {
     )
   `);
 
+  // 14. Users Table for Authentication
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT DEFAULT 'Usuario',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   // Debt payments log
   await pool.query(`
     CREATE TABLE IF NOT EXISTS debt_payments (
@@ -355,6 +366,18 @@ async function initDatabase() {
 }
 
 async function seedInitialData() {
+  const bcrypt = require('bcryptjs');
+
+  const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
+  if (userCount.count === 0) {
+    const hash = await bcrypt.hash('Hola.321', 10);
+    await pool.query(
+      `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING`,
+      ['xavierdiaz1@live.com.mx', hash, 'Xavier Díaz']
+    );
+    console.log('Usuario administrador sembrado: xavierdiaz1@live.com.mx');
+  }
+
   const accountCount = await dbGet('SELECT COUNT(*) as count FROM accounts');
   if (accountCount.count === 0) {
     console.log('Sin cuentas previas — base de datos lista para usar.');

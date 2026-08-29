@@ -10,11 +10,14 @@ import CoachView from './views/CoachView';
 import AnalisisView from './views/AnalisisView';
 import AjustesView from './views/AjustesView';
 import GraficasView from './views/GraficasView';
-import { Database, Server, Cpu } from 'lucide-react';
+import LoginPage from './components/LoginPage';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Database, Server, ShieldCheck } from 'lucide-react';
 import { API_BASE } from './config';
 import './styles/theme.css';
 
-export default function App() {
+function MainApp() {
+  const { isAuthenticated, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('inicio');
   const [apiStatus, setApiStatus] = useState('loading');
   const [summaryData, setSummaryData] = useState(null);
@@ -38,6 +41,8 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     fetch(`${API_BASE}/api/health`)
       .then(res => res.json())
       .then(data => {
@@ -50,7 +55,27 @@ export default function App() {
       .catch(() => setApiStatus('error'));
 
     fetchSummary();
-  }, []);
+  }, [isAuthenticated]);
+
+  if (loading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#020617',
+        color: '#94a3b8',
+        fontSize: '1rem'
+      }}>
+        Verificando sesión segura...
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
 
   return (
     <div className="app-container">
@@ -67,15 +92,15 @@ export default function App() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
             <span className="badge badge-success">Mis Finanzas V2</span>
-            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Mis Finanzas V2 — Motor Financiero Unificado y Aprobado</h3>
+            <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Mis Finanzas V2 — Control Privado y Seguro</h3>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-            Servicios atómicos atados a PostgreSQL, fuente de verdad única de métricas y reconciliación patrimonial.
+            Acceso protegido con autenticación JWT y encriptación bcrypt de contraseñas.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <span className="badge badge-info">
-            <Server size={14} /> Domain Services V2
+            <ShieldCheck size={14} /> Sesión Activa
           </span>
           <span className="badge badge-success">
             <Database size={14} /> PostgreSQL ACID
@@ -126,5 +151,13 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }
