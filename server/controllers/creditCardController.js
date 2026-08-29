@@ -60,27 +60,39 @@ async function getDebts(req, res) {
       }, 0);
 
       // For credit cards: use the linked account's balance as source of truth
-      // (it reflects the balance entered by user + any transactions recorded)
-      let revolvingBalance = parseFloat(debt.current_balance || 0);
+      // acc.balance = total owed (revolving + full MSI amounts already charged)
+      // revolvingBalance = acc.balance minus what's covered by installment plans
+      // This way we avoid double-counting MSI amounts.
+      let accBalance = parseFloat(debt.current_balance || 0);
       let availableCredit = null;
       let creditLimit = parseFloat(debt.original_amount || 0);
 
       if (debt.type === 'credit_card' && debt.account_id) {
         const acc = await dbGet('SELECT * FROM accounts WHERE id = ?', [debt.account_id]).catch(() => null);
         if (acc) {
-          revolvingBalance = parseFloat(acc.balance || 0);
+          accBalance = parseFloat(acc.balance || 0);
           creditLimit = parseFloat(acc.credit_limit || debt.original_amount || 0);
-          if (creditLimit > 0) {
-            availableCredit = Math.max(0, creditLimit - (revolvingBalance + msiMonthlySum));
-          } else if (parseFloat(acc.available_credit || 0) > 0) {
-            availableCredit = parseFloat(acc.available_credit);
-          }
         }
       }
 
-      const totalBalance = revolvingBalance + msiMonthlySum;
-      const noInterestPayment = totalBalance;
-      const minPay = parseFloat(debt.min_payment) || Math.round(totalBalance * 0.05);
+      // FINANCIAL MODEL (correct):
+      // acc.balance = total owed on the card = revolving + MSI remaining
+      // revolving = charges this cycle that are NOT in installment plans
+      const revolvingBalance = Math.max(0, accBalance - msiRemainingTotal);
+
+      // Saldo total pendiente = full amount owed on card (acc.balance)
+      const totalBalance = accBalance;
+
+      // Pago sin intereses este mes = revolving charges + this month's MSI installments ONLY
+      // (NOT the full MSI remaining — that spreads across future months)
+      const noInterestPayment = revolvingBalance + msiMonthlySum;
+
+      // Available credit = limit minus the full balance (full MSI counts against limit)
+      if (creditLimit > 0) {
+        availableCredit = Math.max(0, creditLimit - totalBalance);
+      }
+
+      const minPay = parseFloat(debt.min_payment) || Math.round(noInterestPayment * 0.05);
 
       return {
         ...debt,
@@ -94,6 +106,7 @@ async function getDebts(req, res) {
         msi_remaining_total: msiRemainingTotal,
         msi_plans: msi
       };
+
     }));
 
     return res.json(debtsWithDetails);

@@ -325,10 +325,16 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
 
                 {/* Balance */}
                 <div style={{ background: 'rgba(244,63,94,0.08)', border: '1px solid rgba(244,63,94,0.2)', padding: '0.75rem', borderRadius: '8px' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#fca5a5', fontWeight: '600' }}>Saldo Pendiente</span>
+                  <span style={{ fontSize: '0.72rem', color: '#fca5a5', fontWeight: '600' }}>Saldo Total Pendiente</span>
                   <div style={{ fontSize: '1.75rem', fontWeight: '700', color: '#f43f5e', lineHeight: 1.2 }}>
                     {formatMoney(balance, hideValues)}
                   </div>
+                  {debt.msi_remaining_total > 0 && (
+                    <div style={{ fontSize: '0.72rem', color: '#c4b5fd', marginTop: '0.2rem' }}>
+                      Del cual {formatMoney(debt.msi_remaining_total, hideValues)} es a MSI
+                      {debt.revolving_balance > 0 ? ` + ${formatMoney(debt.revolving_balance, hideValues)} revolving` : ''}
+                    </div>
+                  )}
                   {creditLimit > 0 && (
                     <div style={{ marginTop: '0.4rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
@@ -349,10 +355,18 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                     <span style={{ fontSize: '1rem', fontWeight: '700', color: '#fbbf24' }}>{formatMoney(minPay, hideValues)}</span>
                   </div>
                   <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', padding: '0.55rem', borderRadius: '6px' }}>
-                    <span style={{ fontSize: '0.68rem', color: '#6ee7b7', fontWeight: '600', display: 'block' }}>Sin Intereses</span>
+                    <span style={{ fontSize: '0.68rem', color: '#6ee7b7', fontWeight: '600', display: 'block' }}>
+                      {debt.msi_monthly_sum > 0 ? 'Pago Este Mes (sin int.)' : 'Sin Intereses'}
+                    </span>
                     <span style={{ fontSize: '1rem', fontWeight: '700', color: '#10b981' }}>{formatMoney(noInt, hideValues)}</span>
+                    {debt.msi_monthly_sum > 0 && (
+                      <span style={{ fontSize: '0.65rem', color: '#6ee7b7', display: 'block' }}>
+                        Mensualidad MSI: {formatMoney(debt.msi_monthly_sum, hideValues)}/mes
+                      </span>
+                    )}
                   </div>
                 </div>
+
 
                 {/* Dates */}
                 {(debt.cutoff_date || debt.due_date) && (
