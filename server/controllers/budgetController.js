@@ -36,6 +36,13 @@ async function updateBudgetConfig(req, res) {
       );
     }
 
+    // Sync to settings table
+    await dbRun(
+      `INSERT INTO settings (key, value) VALUES ('daily_budget_limit', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(amount)]
+    );
+
     const updatedStatus = await getDailyBudgetStatus();
     return res.json({ success: true, message: 'Presupuesto diario actualizado.', ...updatedStatus });
   } catch (error) {

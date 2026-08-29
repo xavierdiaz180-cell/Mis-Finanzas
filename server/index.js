@@ -91,6 +91,25 @@ app.post('/api/settings', async (req, res) => {
         [key, String(value)]
       );
     }
+
+    if (settingsMap.daily_budget_limit !== undefined && !isNaN(parseFloat(settingsMap.daily_budget_limit))) {
+      const limitVal = parseFloat(settingsMap.daily_budget_limit);
+      const budgetRow = await dbGet("SELECT id FROM daily_budget WHERE enabled = 1 ORDER BY id DESC LIMIT 1");
+      if (budgetRow) {
+        await dbRun(
+          `UPDATE daily_budget SET amount = ?, base_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [limitVal, limitVal, budgetRow.id]
+        );
+      } else {
+        const monthStr = new Date().toISOString().substring(0, 7);
+        await dbRun(
+          `INSERT INTO daily_budget (base_amount, amount, start_time, timezone, enabled, month)
+           VALUES (?, ?, '08:30', 'America/Mexico_City', 1, ?)`,
+          [limitVal, limitVal, monthStr]
+        );
+      }
+    }
+
     res.json({ success: true, message: 'Configuraciones guardadas' });
   } catch (error) {
     res.status(500).json({ error: error.message });

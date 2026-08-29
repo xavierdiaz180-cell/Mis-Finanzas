@@ -7,10 +7,16 @@ async function getDailyBudgetStatus(currentDateStr = null) {
   const todayStr = currentDateStr || new Date().toISOString().split('T')[0];
   const monthStr = todayStr.substring(0, 7);
 
-  // Get configuration
+  // Get configuration from settings table (Ajustes) first, fallback to daily_budget
+  const budgetSetting = await dbGet("SELECT value FROM settings WHERE key = 'daily_budget_limit'");
+  let settingLimit = null;
+  if (budgetSetting && budgetSetting.value !== undefined && budgetSetting.value !== null && !isNaN(parseFloat(budgetSetting.value))) {
+    settingLimit = parseFloat(budgetSetting.value);
+  }
+
   let budgetConfig = await dbGet("SELECT * FROM daily_budget WHERE enabled = 1 ORDER BY id DESC LIMIT 1");
   if (!budgetConfig) {
-    const defaultAmount = 500;
+    const defaultAmount = settingLimit !== null ? settingLimit : 500;
     const defaultStartTime = '08:30';
     const result = await dbRun(
       `INSERT INTO daily_budget (base_amount, amount, start_time, timezone, enabled, month) 
@@ -20,7 +26,7 @@ async function getDailyBudgetStatus(currentDateStr = null) {
     budgetConfig = await dbGet("SELECT * FROM daily_budget WHERE id = ?", [result.lastID]);
   }
 
-  const budgetAmount = parseFloat(budgetConfig.amount || budgetConfig.base_amount || 500);
+  const budgetAmount = settingLimit !== null ? settingLimit : parseFloat(budgetConfig.amount || budgetConfig.base_amount || 500);
   const startTime = budgetConfig.start_time || '08:30';
 
   // Calculate 24-hour rolling period start & end timestamps
