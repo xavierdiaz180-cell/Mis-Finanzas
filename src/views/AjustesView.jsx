@@ -6,6 +6,7 @@ export default function AjustesView({ onRefresh }) {
   const [settings, setSettings] = useState({
     user_name: 'Usuario',
     daily_budget_limit: '200',
+    services_budget_limit: '1500',
     gemini_api_key: '',
     gemini_model: 'gemini-2.0-flash',
     financial_freedom_age: '55',
@@ -184,9 +185,9 @@ export default function AjustesView({ onRefresh }) {
 
         {/* Budget & Personal Settings */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Preferencias de Usuario y Presupuesto</h3>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Preferencias de Usuario y Presupuestos</h3>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem' }}>
             <div>
               <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
                 Nombre Personalizado del Usuario:
@@ -202,7 +203,7 @@ export default function AjustesView({ onRefresh }) {
 
             <div>
               <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                Límite Diario Base del Presupuesto ($):
+                Límite Diario de Alimentación ($) — Ciclo 24 Horas:
               </label>
               <input 
                 type="number" 
@@ -212,6 +213,26 @@ export default function AjustesView({ onRefresh }) {
                 step="10"
                 style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
               />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                * Se descuenta únicamente lo que gastes en Alimentación. Se actualiza cada 24 horas.
+              </span>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
+                Presupuesto Mensual de Servicios ($) — Ciclo Mensual:
+              </label>
+              <input 
+                type="number" 
+                value={settings.services_budget_limit || '1500'} 
+                onChange={e => setSettings({ ...settings, services_budget_limit: e.target.value })}
+                placeholder="1500"
+                step="50"
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', color: 'white' }}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                * Se descuenta únicamente lo que gastes en Servicios. Se reinicia el 1° de cada mes.
+              </span>
             </div>
           </div>
         </div>

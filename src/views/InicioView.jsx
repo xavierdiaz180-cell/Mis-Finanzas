@@ -42,6 +42,12 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
   const total_debt = summary.total_debt !== undefined ? parseFloat(summary.total_debt) : parseFloat(summary.total_deuda || 0);
   const net_worth = summary.net_worth !== undefined ? parseFloat(summary.net_worth) : (available_money - total_debt);
   const presupuesto_diario = summary.presupuesto_diario || {};
+  const presupuesto_servicios = presupuesto_diario.servicios || summary.presupuesto_servicios || {
+    budget_amount: 1500,
+    actual_spent: 0,
+    available_month: 1500,
+    result: 'LESS_THAN_BUDGET'
+  };
   const coach_recomendacion_corta = summary.coach_recomendacion_corta || '';
 
   // Daily budget text mapping according to Phase 3.1 specification
@@ -58,7 +64,8 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
     }
   };
 
-  const budgetResult = presupuesto_diario.result || (presupuesto_diario.available_today < 0 ? 'OVER_BUDGET' : 'LESS_THAN_BUDGET');
+  const budgetFoodResult = presupuesto_diario.result || (presupuesto_diario.available_today < 0 ? 'OVER_BUDGET' : 'LESS_THAN_BUDGET');
+  const budgetServicesResult = presupuesto_servicios.result || (presupuesto_servicios.available_month < 0 ? 'OVER_BUDGET' : 'LESS_THAN_BUDGET');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -164,51 +171,91 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
 
       </div>
 
-      {/* Middle Grid: Presupuesto Diario de 24 Horas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+      {/* Middle Grid: Presupuesto Alimentación (24h) y Presupuesto Servicios (Mensual) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.25rem' }}>
         
-        <div className="glass-card">
+        {/* 1. Presupuesto Diario de Alimentación (24h) */}
+        <div className="glass-card" style={{ borderTop: '3px solid #f59e0b' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Calendar size={18} style={{ color: '#60a5fa' }} /> Presupuesto Diario de 24 Horas
+            <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+              <Calendar size={18} style={{ color: '#f59e0b' }} /> Alimentación (Presupuesto 24h)
             </h3>
-            <span className={`badge ${budgetResult === 'OVER_BUDGET' ? 'badge-danger' : 'badge-success'}`}>
-              {getBudgetStatusText(budgetResult)}
+            <span className={`badge ${budgetFoodResult === 'OVER_BUDGET' ? 'badge-danger' : 'badge-success'}`}>
+              {getBudgetStatusText(budgetFoodResult)}
             </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', textAlign: 'center', marginBottom: '1.2rem' }}>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Límite Diario</span>
-              <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#f8fafc' }}>
-                {formatMoney(presupuesto_diario.budget_amount || presupuesto_diario.limite_diario || 500, hideValues)}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', textAlign: 'center', marginBottom: '0.85rem' }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Límite Diario</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f8fafc' }}>
+                {formatMoney(presupuesto_diario.budget_amount || presupuesto_diario.limite_diario || 200, hideValues)}
               </div>
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Gastado (24h)</span>
-              <div style={{ fontSize: '1.2rem', fontWeight: '600', color: '#f43f5e' }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Gastado (24h)</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f43f5e' }}>
                 {formatMoney(presupuesto_diario.actual_spent || presupuesto_diario.gastado_hoy || 0, hideValues)}
               </div>
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Disponible (24h)</span>
-              <div style={{ fontSize: '1.2rem', fontWeight: '600', color: ((presupuesto_diario.available_today || presupuesto_diario.disponible_hoy || 0) < 0) ? '#f43f5e' : '#34d399' }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Disponible (24h)</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: ((presupuesto_diario.available_today ?? 0) < 0) ? '#f43f5e' : '#34d399' }}>
                 {formatMoney(presupuesto_diario.available_today || presupuesto_diario.disponible_hoy || 0, hideValues)}
               </div>
             </div>
           </div>
+          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
+            * Solo descuenta gastos de <strong>Alimentación</strong>. Se actualiza cada 24 horas.
+          </p>
+        </div>
 
-          {coach_recomendacion_corta && (
-            <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Sparkles size={20} style={{ color: '#60a5fa', flexShrink: 0 }} />
-              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                {coach_recomendacion_corta}
+        {/* 2. Presupuesto Mensual de Servicios */}
+        <div className="glass-card" style={{ borderTop: '3px solid #38bdf8' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+              <TrendingUp size={18} style={{ color: '#38bdf8' }} /> Servicios (Presupuesto Mensual)
+            </h3>
+            <span className={`badge ${budgetServicesResult === 'OVER_BUDGET' ? 'badge-danger' : 'badge-success'}`}>
+              {getBudgetStatusText(budgetServicesResult)}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', textAlign: 'center', marginBottom: '0.85rem' }}>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Límite Mensual</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f8fafc' }}>
+                {formatMoney(presupuesto_servicios.budget_amount || presupuesto_servicios.limite_mensual || 1500, hideValues)}
               </div>
             </div>
-          )}
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Gastado (Mes)</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f43f5e' }}>
+                {formatMoney(presupuesto_servicios.actual_spent || presupuesto_servicios.gastado_mes || 0, hideValues)}
+              </div>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Disponible (Mes)</span>
+              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: ((presupuesto_servicios.available_month ?? 0) < 0) ? '#f43f5e' : '#34d399' }}>
+                {formatMoney(presupuesto_servicios.available_month || presupuesto_servicios.disponible_mes || 0, hideValues)}
+              </div>
+            </div>
+          </div>
+          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
+            * Solo descuenta gastos de <strong>Servicios</strong>. Se reinicia el 1° de cada mes.
+          </p>
         </div>
 
       </div>
+
+      {coach_recomendacion_corta && (
+        <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Sparkles size={20} style={{ color: '#60a5fa', flexShrink: 0 }} />
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            {coach_recomendacion_corta}
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -1,80 +1,94 @@
 const { pool, dbGet, dbAll, dbRun } = require('../database');
 
 /**
- * Calculates current 24-hour rolling daily budget status and closed period history
+ * Calculates 24-hour daily budget for Alimentación and Monthly budget for Servicios
  */
 async function getDailyBudgetStatus(currentDateStr = null) {
   const todayStr = currentDateStr || new Date().toISOString().split('T')[0];
   const monthStr = todayStr.substring(0, 7);
 
-  // Get configuration from settings table (Ajustes) first, fallback to daily_budget
-  const budgetSetting = await dbGet("SELECT value FROM settings WHERE key = 'daily_budget_limit'");
-  let settingLimit = null;
-  if (budgetSetting && budgetSetting.value !== undefined && budgetSetting.value !== null && !isNaN(parseFloat(budgetSetting.value))) {
-    settingLimit = parseFloat(budgetSetting.value);
-  }
+  // 1. CONFIGURATION FROM SETTINGS (Ajustes)
+  const settingsRows = await dbAll("SELECT key, value FROM settings WHERE key IN ('daily_budget_limit', 'services_budget_limit')");
+  const settingsMap = {};
+  settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
-  let budgetConfig = await dbGet("SELECT * FROM daily_budget WHERE enabled = 1 ORDER BY id DESC LIMIT 1");
-  if (!budgetConfig) {
-    const defaultAmount = settingLimit !== null ? settingLimit : 500;
-    const defaultStartTime = '08:30';
-    const result = await dbRun(
-      `INSERT INTO daily_budget (base_amount, amount, start_time, timezone, enabled, month) 
-       VALUES (?, ?, ?, 'America/Mexico_City', 1, ?)`,
-      [defaultAmount, defaultAmount, defaultStartTime, monthStr]
-    );
-    budgetConfig = await dbGet("SELECT * FROM daily_budget WHERE id = ?", [result.lastID]);
-  }
+  const foodDailyLimit = parseFloat(settingsMap.daily_budget_limit || 200);
+  const servicesMonthlyLimit = parseFloat(settingsMap.services_budget_limit || 1500);
 
-  const budgetAmount = settingLimit !== null ? settingLimit : parseFloat(budgetConfig.amount || budgetConfig.base_amount || 500);
-  const startTime = budgetConfig.start_time || '08:30';
-
-  // Calculate 24-hour rolling period start & end timestamps
-  const [startHour, startMin] = startTime.split(':').map(n => parseInt(n, 10));
-  const now = new Date();
-  
-  let periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour, startMin, 0);
-  if (now < periodStart) {
-    periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, startHour, startMin, 0);
-  }
-  const periodEnd = new Date(periodStart.getTime() + 24 * 60 * 60 * 1000);
-
-  const periodStartStr = periodStart.toISOString();
-  const periodEndStr = periodEnd.toISOString();
-
-  // Query transactions for today's budget period
-  let actualSpent = 0;
+  // 2. DAILY FOOD BUDGET (ALIMENTACIÓN - 24 HORAS)
+  let foodSpent24h = 0;
   try {
-    const spentRow = await dbGet(
+    const foodRow = await dbGet(
       `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
        WHERE type IN ('expense', 'card_purchase') 
+         AND LOWER(category) IN ('alimentación', 'alimentacion', 'comida', 'alimentos')
          AND (date = ? OR date LIKE ?)`,
       [todayStr, `${todayStr}%`]
     );
-    actualSpent = parseFloat(spentRow?.total || 0);
+    foodSpent24h = parseFloat(foodRow?.total || 0);
   } catch (e) {
-    console.error('Error querying daily spent:', e);
+    console.error('Error querying daily food spent:', e);
   }
 
-  const availableToday = budgetAmount - actualSpent;
-  const variance = budgetAmount - actualSpent;
+  const foodAvailableToday = foodDailyLimit - foodSpent24h;
+  let foodStatus = 'LESS_THAN_BUDGET';
+  if (foodSpent24h === foodDailyLimit) {
+    foodStatus = 'ON_BUDGET';
+  } else if (foodSpent24h > foodDailyLimit) {
+    foodStatus = 'OVER_BUDGET';
+  }
 
-  let resultStatus = 'LESS_THAN_BUDGET';
-  if (actualSpent === budgetAmount) {
-    resultStatus = 'ON_BUDGET';
-  } else if (actualSpent > budgetAmount) {
-    resultStatus = 'OVER_BUDGET';
+  // 3. MONTHLY SERVICES BUDGET (SERVICIOS - MENSUAL)
+  let servicesSpentMonth = 0;
+  try {
+    const servicesRow = await dbGet(
+      `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
+       WHERE type IN ('expense', 'card_purchase') 
+         AND LOWER(category) IN ('servicios', 'servicio')
+         AND (date LIKE ? OR date = ?)`,
+      [`${monthStr}%`, monthStr]
+    );
+    servicesSpentMonth = parseFloat(servicesRow?.total || 0);
+  } catch (e) {
+    console.error('Error querying monthly services spent:', e);
+  }
+
+  const servicesAvailableMonth = servicesMonthlyLimit - servicesSpentMonth;
+  let servicesStatus = 'LESS_THAN_BUDGET';
+  if (servicesSpentMonth === servicesMonthlyLimit) {
+    servicesStatus = 'ON_BUDGET';
+  } else if (servicesSpentMonth > servicesMonthlyLimit) {
+    servicesStatus = 'OVER_BUDGET';
   }
 
   return {
-    budget_amount: budgetAmount,
-    actual_spent: actualSpent,
-    available_today: availableToday,
-    variance: variance,
-    result: resultStatus,
-    period_start: periodStartStr,
-    period_end: periodEndStr,
-    start_time: startTime
+    // Presupuesto de Alimentación (24 Horas)
+    budget_amount: foodDailyLimit,
+    actual_spent: foodSpent24h,
+    available_today: foodAvailableToday,
+    variance: foodAvailableToday,
+    result: foodStatus,
+    limite_diario: foodDailyLimit,
+    gastado_hoy: foodSpent24h,
+    disponible_hoy: foodAvailableToday,
+    categoria: 'Alimentación',
+    frecuencia: '24 Horas',
+    reinicio: 'Cada 24 Horas (acumulado reinicia el 1° de mes)',
+
+    // Presupuesto de Servicios (Mensual)
+    servicios: {
+      budget_amount: servicesMonthlyLimit,
+      actual_spent: servicesSpentMonth,
+      available_month: servicesAvailableMonth,
+      variance: servicesAvailableMonth,
+      result: servicesStatus,
+      limite_mensual: servicesMonthlyLimit,
+      gastado_mes: servicesSpentMonth,
+      disponible_mes: servicesAvailableMonth,
+      categoria: 'Servicios',
+      frecuencia: 'Mensual',
+      reinicio: '1 de cada mes'
+    }
   };
 }
 
