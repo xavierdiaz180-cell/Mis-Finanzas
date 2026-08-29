@@ -7,12 +7,12 @@ dns.setDefaultResultOrder('ipv4first');
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
-  console.error('FATAL: DATABASE_URL environment variable is not set!');
+  console.log('INFO: DATABASE_URL environment variable is not set locally.');
 }
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: DATABASE_URL ? { rejectUnauthorized: false } : false,
   connectionTimeoutMillis: 30000,
   idleTimeoutMillis: 30000,
   max: 10,
@@ -160,10 +160,25 @@ async function initDatabase() {
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
 
-  // Add missing columns to accounts if they don't exist yet
+  // Add missing V2 columns to accounts
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS min_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'MXN'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`).catch(() => {});
+  await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+
+  // Add missing V2 columns to transactions and update CHECK constraint
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_account_id INTEGER REFERENCES accounts(id)`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_account_id INTEGER REFERENCES accounts(id)`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_investment_id INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_investment_id INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_type_check`).catch(() => {});
+  await pool.query(`
+    ALTER TABLE transactions ADD CONSTRAINT transactions_type_check 
+    CHECK(type IN ('expense', 'income', 'payment', 'transfer', 'investment_deposit', 'investment_withdrawal', 'card_purchase', 'card_payment', 'investment_contribution', 'investment_valuation', 'loan_payment', 'adjustment'))
+  `).catch(() => {});
 
   // 6. Installment Plans (MSI)
   await pool.query(`
@@ -171,15 +186,41 @@ async function initDatabase() {
       id SERIAL PRIMARY KEY,
       debt_id INTEGER,
       account_id INTEGER,
+      credit_card_id INTEGER,
+      transaction_id INTEGER,
       concept TEXT NOT NULL,
       total_amount REAL NOT NULL,
+      original_amount REAL DEFAULT 0,
       monthly_amount REAL NOT NULL,
       installments_total INTEGER NOT NULL,
       installments_paid INTEGER DEFAULT 0,
+      installments_remaining INTEGER DEFAULT 0,
       remaining_balance REAL NOT NULL,
+      remaining_principal REAL DEFAULT 0,
+      purchase_date TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      status TEXT DEFAULT 'active',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS credit_card_id INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS transaction_id INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS original_amount REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS installments_remaining INTEGER DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS remaining_principal REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS purchase_date TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS start_date TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS end_date TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE installment_plans ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`).catch(() => {});
+
+  // Investments extensions
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS institution TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS capital_contributed REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS current_value REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS withdrawals_total REAL DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`).catch(() => {});
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
 
   // 7. Recurring Expenses
   await pool.query(`
@@ -226,10 +267,35 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS daily_budget (
       id SERIAL PRIMARY KEY,
       base_amount REAL DEFAULT 200,
+      amount REAL DEFAULT 200,
+      start_time TEXT DEFAULT '08:30',
+      timezone TEXT DEFAULT 'America/Mexico_City',
+      enabled INTEGER DEFAULT 1,
       month TEXT NOT NULL,
       rollover_amount REAL DEFAULT 0,
       daily_spent REAL DEFAULT 0,
-      last_reset_date TEXT
+      last_reset_date TEXT,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`ALTER TABLE daily_budget ADD COLUMN IF NOT EXISTS amount REAL DEFAULT 200`).catch(() => {});
+  await pool.query(`ALTER TABLE daily_budget ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '08:30'`).catch(() => {});
+  await pool.query(`ALTER TABLE daily_budget ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT 'America/Mexico_City'`).catch(() => {});
+  await pool.query(`ALTER TABLE daily_budget ADD COLUMN IF NOT EXISTS enabled INTEGER DEFAULT 1`).catch(() => {});
+  await pool.query(`ALTER TABLE daily_budget ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+
+  // 10b. Daily Budget Periods (Historial de 24 horas)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_budget_periods (
+      id SERIAL PRIMARY KEY,
+      budget_id INTEGER,
+      period_start TIMESTAMP NOT NULL,
+      period_end TIMESTAMP NOT NULL,
+      budget_amount REAL NOT NULL,
+      actual_spent REAL DEFAULT 0,
+      variance REAL DEFAULT 0,
+      result TEXT NOT NULL CHECK(result IN ('LESS_THAN_BUDGET', 'ON_BUDGET', 'OVER_BUDGET')),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 

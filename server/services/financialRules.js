@@ -261,34 +261,36 @@ async function calculateFinancialMetrics() {
   // Sync credit card balances with transactions & debts
   await syncCreditCardsAndDebts();
 
-  // 1. Available Today
+  // 1. Cuentas Líquidas
   const liquidAccounts = await dbAll(`
     SELECT SUM(balance) as total FROM accounts 
     WHERE active = 1 AND type IN ('bank', 'payroll', 'cash')
   `);
-  const disponibleHoy = parseFloat(liquidAccounts[0]?.total || 0);
+  const cuentasLiquidas = parseFloat(liquidAccounts[0]?.total || 0);
 
-  // 2. Documented Investments Value
-  const investmentRow = await dbAll('SELECT SUM(current_documented_value) as total FROM investments');
+  // 2. Inversiones
+  const investmentRow = await dbAll('SELECT SUM(COALESCE(current_value, current_documented_value)) as total FROM investments');
   const totalInversiones = parseFloat(investmentRow[0]?.total || 0);
 
-  // 3. Total Debt
-  // Debts from debts table
-  const debtRow = await dbAll('SELECT SUM(current_balance) as total FROM debts');
+  // V2 Definition: Dinero Disponible = Cuentas Líquidas + Inversiones
+  const disponibleHoy = cuentasLiquidas + totalInversiones;
+
+  // 3. Pasivos / Deuda Total
+  const debtRow = await dbAll("SELECT SUM(current_balance) as total FROM debts WHERE type != 'credit_card'");
   const totalDebtsTable = parseFloat(debtRow[0]?.total || 0);
 
-  // Credit card used balances from accounts table
   const ccAccounts = await dbAll(`
-    SELECT SUM(credit_limit - available_credit) as total FROM accounts
-    WHERE active = 1 AND type = 'credit_card' AND credit_limit > available_credit
+    SELECT SUM(balance) as total FROM accounts
+    WHERE active = 1 AND type = 'credit_card'
   `);
   const totalCCDebt = parseFloat(ccAccounts[0]?.total || 0);
-
   const totalDeuda = totalDebtsTable + totalCCDebt;
 
-  // 4. Net Worth calculation
-  const rawNetWorth = disponibleHoy + totalInversiones - totalDeuda;
-  const riquezaNeta = rawNetWorth > 0 ? rawNetWorth : 0;
+  // 4. V2 Definition: Patrimonio Neto = Activos - Pasivos
+  const activos = cuentasLiquidas + totalInversiones;
+  const pasivos = totalDeuda;
+  const patrimonioNeto = activos - pasivos;
+  const riquezaNeta = patrimonioNeto > 0 ? patrimonioNeto : 0;
 
   // 5. Month Income & Expenses
   const monthIncomeRow = await dbAll(`
@@ -389,7 +391,7 @@ async function calculateFinancialMetrics() {
     total_inversiones: totalInversiones,
     total_deuda: totalDeuda,
     riqueza_neta: riquezaNeta,
-    riqueza_neta_raw: rawNetWorth,
+    riqueza_neta_raw: patrimonioNeto,
     ingresos_mes: ingresosMes,
     gastos_mes: gastosMes,
     salud_financiera: {
