@@ -488,6 +488,38 @@ async function deleteAccountSafely(accountId) {
   });
 }
 
+/**
+ * Deletes a credit card debt / loan safely along with its associated account and installment plans
+ */
+async function deleteDebtSafely(debtId) {
+  return await withTransaction(async (client) => {
+    const debtRes = await client.query('SELECT * FROM debts WHERE id = $1 FOR UPDATE', [debtId]);
+    const debt = debtRes.rows[0];
+    if (!debt) return { success: true, message: 'Deuda no encontrada.' };
+
+    const targetAccId = debt.account_id;
+
+    // Delete associated installment plans and debt payments
+    await client.query('DELETE FROM installment_plans WHERE debt_id = $1 OR (account_id IS NOT NULL AND account_id = $2)', [debtId, targetAccId]);
+    await client.query('DELETE FROM debt_payments WHERE debt_id = $1', [debtId]);
+
+    // Delete debt record
+    await client.query('DELETE FROM debts WHERE id = $1', [debtId]);
+
+    // If there is an associated credit card account, safely delete dependent records first then the account
+    const accIdToDelete = targetAccId || debtId;
+    if (accIdToDelete) {
+      await client.query('DELETE FROM installment_plans WHERE account_id = $1 OR credit_card_id = $1', [accIdToDelete]);
+      await client.query('DELETE FROM debts WHERE account_id = $1', [accIdToDelete]);
+      await client.query('DELETE FROM incomes WHERE account_id = $1', [accIdToDelete]);
+      await client.query('DELETE FROM transactions WHERE account_id = $1 OR source_account_id = $1 OR destination_account_id = $1', [accIdToDelete]);
+      await client.query("DELETE FROM accounts WHERE id = $1 AND type = 'credit_card'", [accIdToDelete]);
+    }
+
+    return { success: true, message: 'Deuda y registros asociados eliminados de forma segura.' };
+  });
+}
+
 module.exports = {
   withTransaction,
   executeIncome,
@@ -501,5 +533,6 @@ module.exports = {
   getTransactions,
   processGenericTransaction,
   deleteTransactionSafely,
-  deleteAccountSafely
+  deleteAccountSafely,
+  deleteDebtSafely
 };

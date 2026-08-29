@@ -1,6 +1,6 @@
 const { dbAll, dbGet, dbRun } = require('../database');
 const { syncCreditCardsAndDebts } = require('../services/financialRules');
-const { executeCardPurchase, executeCardPayment } = require('../services/transactionService');
+const { executeCardPurchase, executeCardPayment, deleteDebtSafely } = require('../services/transactionService');
 const { registerExistingMSI } = require('../services/creditCardService');
 
 /**
@@ -172,15 +172,8 @@ async function payDebt(req, res) {
 async function deleteDebt(req, res) {
   try {
     const { id } = req.params;
-    const debt = await dbGet('SELECT * FROM debts WHERE id = ?', [id]);
-    if (debt) {
-      await dbRun('DELETE FROM installment_plans WHERE debt_id = ? OR account_id = ?', [id, debt.account_id]);
-      if (debt.account_id) {
-        await dbRun("DELETE FROM accounts WHERE id = ? AND type = 'credit_card'", [debt.account_id]);
-      }
-      await dbRun('DELETE FROM debts WHERE id = ?', [id]);
-    }
-    return res.json({ success: true, message: 'Deuda y sus planes asociados eliminados correctamente.' });
+    const result = await deleteDebtSafely(parseInt(id, 10));
+    return res.json(result);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

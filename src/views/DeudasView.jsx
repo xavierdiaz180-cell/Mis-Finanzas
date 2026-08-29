@@ -316,17 +316,17 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                       </span>
                       <button 
                         onClick={() => handleStartEditDebt(debt)}
-                        title="Editar Datos de la Tarjeta"
-                        style={{ background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', borderRadius: '6px', padding: '0.35rem 0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        title="Configurar / Editar Datos de la Tarjeta"
+                        style={{ background: 'rgba(59, 130, 246, 0.2)', border: '1px solid rgba(59, 130, 246, 0.4)', color: '#60a5fa', borderRadius: '6px', padding: '0.4rem 0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.78rem', fontWeight: '600' }}
                       >
-                        <Edit3 size={15} />
+                        <Edit3 size={15} /> Configurar
                       </button>
                       <button 
                         onClick={() => handleDeleteDebt(debt.id, debt.name, debt.current_balance)}
-                        title="Eliminar Deuda"
-                        style={{ background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', color: '#f43f5e', borderRadius: '6px', padding: '0.35rem 0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        title="Borrar Deuda / Tarjeta"
+                        style={{ background: 'rgba(244, 63, 94, 0.2)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#f43f5e', borderRadius: '6px', padding: '0.4rem 0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.78rem', fontWeight: '600' }}
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={15} /> Borrar
                       </button>
                     </div>
                   </div>
@@ -400,7 +400,7 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
 
                 </div>
 
-                {/* Action buttons (Realizar Pago & Configurar MSI) */}
+                {/* Action buttons Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <button 
                     onClick={() => { setSelectedDebt(debt); setShowPayModal(true); setPayAmount(noIntPayVal || debt.current_balance || ''); }}
@@ -414,7 +414,7 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
                     onClick={() => setMsiModalDebt(debt)}
                     style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', color: '#c4b5fd', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: '600', padding: '0.65rem' }}
                   >
-                    <Settings size={15} /> Configurar MSI
+                    <Settings size={15} /> Planes MSI
                   </button>
                 </div>
               </div>
