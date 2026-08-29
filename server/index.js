@@ -127,6 +127,7 @@ app.get('/api/debts', creditCardController.getDebts);
 app.post('/api/debts', creditCardController.createDebt);
 app.put('/api/debts/:id', creditCardController.updateDebt);
 app.post('/api/debts/:id/pay', creditCardController.payDebt);
+app.post('/api/debts/:id/expense', creditCardController.addCardExpense);
 app.delete('/api/debts/:id', creditCardController.deleteDebt);
 
 // Installment Plans (MSI)
