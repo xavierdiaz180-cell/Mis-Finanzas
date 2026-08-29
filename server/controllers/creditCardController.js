@@ -1,20 +1,49 @@
 const { dbAll, dbGet, dbRun } = require('../database');
-const { syncCreditCardsAndDebts } = require('../services/financialRules');
-const { executeCardPayment } = require('../services/transactionService');
-const { registerExistingMSI } = require('../services/creditCardService');
 
 /**
  * GET /api/debts
- * Returns all debts with real-time balance calculations from transactions.
- * Does NOT call syncCreditCardsAndDebts() to avoid overwriting manual edits.
+ * Returns all debts with real-time balance calculations.
+ * Also auto-creates a debts row for any credit_card account that lacks one
+ * (handles cards created from the Cartera tab without going through Deudas).
  */
 async function getDebts(req, res) {
   try {
+    // Step 1: Ensure every credit_card account has a matching debts row.
+    // This handles the case where a card was added from the Cartera tab.
+    const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
+    for (const acc of creditAccounts) {
+      const existing = await dbGet('SELECT id FROM debts WHERE account_id = ?', [acc.id]);
+      if (!existing) {
+        // Also check by name as a fallback
+        const existingByName = await dbGet(
+          "SELECT id FROM debts WHERE type = 'credit_card' AND LOWER(name) = LOWER(?)",
+          [acc.name]
+        );
+        if (existingByName) {
+          // Link the existing debt to this account
+          await dbRun('UPDATE debts SET account_id = ? WHERE id = ?', [acc.id, existingByName.id]);
+        } else {
+          // Create the missing debts row using account data
+          const bal = parseFloat(acc.balance || 0);
+          const lim = parseFloat(acc.credit_limit || 0);
+          const minPay = parseFloat(acc.min_payment || 0) || Math.round(bal * 0.05);
+          await dbRun(
+            `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, min_payment, no_interest_payment, interest_rate, due_date, cutoff_date, account_id)
+             VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [acc.name, lim, bal, bal, minPay, minPay,
+             parseFloat(acc.interest_rate || 0),
+             acc.due_date || null, acc.cutoff_date || null, acc.id]
+          );
+        }
+      }
+    }
+
+    // Step 2: Load all debts and installment plans
     const debts = await dbAll('SELECT * FROM debts ORDER BY name ASC');
     const installmentPlans = await dbAll('SELECT * FROM installment_plans');
 
     const debtsWithDetails = await Promise.all(debts.map(async (debt) => {
-      // Get all MSI plans for this debt
+      // Match MSI plans by debt_id or linked account_id
       const msi = installmentPlans.filter(plan =>
         plan.debt_id === debt.id ||
         (debt.account_id && plan.account_id === debt.account_id) ||
@@ -30,34 +59,22 @@ async function getDebts(req, res) {
         return sum + (parseFloat(p.monthly_amount) * remInst);
       }, 0);
 
-      // For credit cards: compute real-time revolving balance from transactions since last cutoff
+      // For credit cards: use the linked account's balance as source of truth
+      // (it reflects the balance entered by user + any transactions recorded)
       let revolvingBalance = parseFloat(debt.current_balance || 0);
       let availableCredit = null;
+      let creditLimit = parseFloat(debt.original_amount || 0);
 
       if (debt.type === 'credit_card' && debt.account_id) {
-        // Try to get transactions for linked account
-        const cutoffThreshold = getCutoffThreshold(debt.cutoff_date);
-        let txQuery = `
-          SELECT 
-            COALESCE(SUM(CASE WHEN type IN ('card_purchase', 'expense') THEN amount ELSE 0 END), 0) as purchases,
-            COALESCE(SUM(CASE WHEN type IN ('card_payment', 'payment') THEN amount ELSE 0 END), 0) as payments
-          FROM transactions 
-          WHERE account_id = ?
-        `;
-        const txParams = [debt.account_id];
-        if (cutoffThreshold) {
-          txQuery += ' AND date > ?';
-          txParams.push(cutoffThreshold);
-        }
-        const txRow = await dbGet(txQuery, txParams).catch(() => null);
-        if (txRow) {
-          revolvingBalance = Math.max(0, parseFloat(txRow.purchases) - parseFloat(txRow.payments));
-        }
-
-        const acc = await dbGet('SELECT credit_limit, available_credit FROM accounts WHERE id = ?', [debt.account_id]).catch(() => null);
-        if (acc && parseFloat(acc.credit_limit || 0) > 0) {
-          const totalUsed = revolvingBalance + msiMonthlySum;
-          availableCredit = Math.max(0, parseFloat(acc.credit_limit) - totalUsed);
+        const acc = await dbGet('SELECT * FROM accounts WHERE id = ?', [debt.account_id]).catch(() => null);
+        if (acc) {
+          revolvingBalance = parseFloat(acc.balance || 0);
+          creditLimit = parseFloat(acc.credit_limit || debt.original_amount || 0);
+          if (creditLimit > 0) {
+            availableCredit = Math.max(0, creditLimit - (revolvingBalance + msiMonthlySum));
+          } else if (parseFloat(acc.available_credit || 0) > 0) {
+            availableCredit = parseFloat(acc.available_credit);
+          }
         }
       }
 
@@ -72,6 +89,7 @@ async function getDebts(req, res) {
         no_interest_payment: noInterestPayment,
         min_payment: minPay,
         available_credit: availableCredit,
+        original_amount: creditLimit,
         msi_monthly_sum: msiMonthlySum,
         msi_remaining_total: msiRemainingTotal,
         msi_plans: msi
@@ -101,7 +119,8 @@ function getCutoffThreshold(cutoffDateValue) {
 
 /**
  * POST /api/debts
- * Creates a new debt or credit card. Does NOT create a linked account automatically.
+ * Creates a new debt or credit card.
+ * For credit_card type: also creates a linked account for transaction tracking.
  */
 async function createDebt(req, res) {
   try {
@@ -132,14 +151,14 @@ async function createDebt(req, res) {
        parseFloat(interest_rate), due_date || null, cutoff_date || null, parseInt(remaining_payments, 10)]
     );
 
-    // If it's a credit_card, also create an account entry for transaction tracking
-    if (type === 'credit_card' && finalLimit > 0) {
+    // For credit_card: also create linked account for transaction tracking
+    if (type === 'credit_card') {
       const accResult = await dbRun(
         `INSERT INTO accounts (name, type, balance, credit_limit, available_credit, interest_rate, due_date, cutoff_date)
          VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?)`,
         [name, bal, finalLimit, Math.max(0, finalLimit - bal), parseFloat(interest_rate), due_date || null, cutoff_date || null]
       );
-      // Link the account to the debt
+      // Link the account back to the debt
       await dbRun('UPDATE debts SET account_id = ? WHERE id = ?', [accResult.lastID, result.lastID]);
     }
 
@@ -152,7 +171,8 @@ async function createDebt(req, res) {
 
 /**
  * PUT /api/debts/:id
- * Updates a debt's manual configuration without triggering auto-sync that would overwrite values.
+ * Updates a debt's manual configuration.
+ * Does NOT trigger auto-sync to preserve the manually entered values.
  */
 async function updateDebt(req, res) {
   try {
@@ -171,7 +191,7 @@ async function updateDebt(req, res) {
     const newRate = interest_rate !== undefined ? parseFloat(interest_rate) : parseFloat(debt.interest_rate || 0);
     const newLimit = credit_limit !== undefined ? parseFloat(credit_limit) : parseFloat(debt.original_amount || 0);
 
-    // Update debts table — this is the source of truth
+    // Update debts table (source of truth)
     await dbRun(
       `UPDATE debts SET 
         name = ?, 
@@ -186,7 +206,7 @@ async function updateDebt(req, res) {
       [newName, newBalance, newLimit, newMin, newNoInt, newCutoff, newDue, newRate, id]
     );
 
-    // Sync to linked account if it exists (legacy support)
+    // Sync to linked account (legacy support — debt is still source of truth)
     if (debt.account_id) {
       const acc = await dbGet("SELECT * FROM accounts WHERE id = ? AND type = 'credit_card'", [debt.account_id]);
       if (acc) {
@@ -200,7 +220,7 @@ async function updateDebt(req, res) {
       }
     }
 
-    // NOTE: intentionally NOT calling syncCreditCardsAndDebts() here to preserve manual edits
+    // NOTE: intentionally NOT calling syncCreditCardsAndDebts() to preserve manual edits
 
     return res.json({ success: true, message: 'Tarjeta / Deuda actualizada correctamente.' });
   } catch (error) {
@@ -211,7 +231,7 @@ async function updateDebt(req, res) {
 
 /**
  * POST /api/debts/:id/pay
- * Registers a card payment: reduces liquid account and reduces debt balance.
+ * Registers a card payment: reduces liquid source account and reduces debt balance.
  */
 async function payDebt(req, res) {
   try {
@@ -237,7 +257,7 @@ async function payDebt(req, res) {
     // Deduct from source liquid account
     await dbRun('UPDATE accounts SET balance = balance - ? WHERE id = ?', [numAmount, account_id]);
 
-    // If debt has a linked credit card account — update it too
+    // Update linked credit card account
     if (debt.account_id) {
       const cardAcc = await dbGet("SELECT * FROM accounts WHERE id = ? AND type = 'credit_card'", [debt.account_id]);
       if (cardAcc) {
@@ -278,6 +298,7 @@ async function payDebt(req, res) {
 /**
  * POST /api/debts/:id/expense
  * Registers a credit card purchase (increases debt balance).
+ * Supports MSI: creates installment plan automatically.
  */
 async function addCardExpense(req, res) {
   try {
@@ -308,7 +329,7 @@ async function addCardExpense(req, res) {
       }
     }
 
-    // Record transaction (using account_id of linked card account, or debt id as fallback)
+    // Record transaction
     const txAccountId = debt.account_id || null;
     const txRes = await dbRun(
       `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status, transaction_datetime)
@@ -317,7 +338,7 @@ async function addCardExpense(req, res) {
     );
     const txId = txRes.lastID;
 
-    // If MSI, create installment plan
+    // If MSI: create installment plan
     let msiPlan = null;
     if (is_msi && parseInt(msi_months, 10) > 1) {
       const months = parseInt(msi_months, 10);
@@ -325,7 +346,9 @@ async function addCardExpense(req, res) {
       const msiRes = await dbRun(
         `INSERT INTO installment_plans (debt_id, account_id, credit_card_id, transaction_id, concept, total_amount, original_amount, monthly_amount, installments_total, installments_paid, installments_remaining, remaining_balance, remaining_principal, purchase_date, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'active')`,
-        [id, debt.account_id || null, debt.account_id || null, txId, concept || `Gasto en ${debt.name}`, numAmount, numAmount, monthly, months, months, numAmount, numAmount, txDate]
+        [id, debt.account_id || null, debt.account_id || null, txId,
+         concept || `Gasto en ${debt.name}`, numAmount, numAmount, monthly,
+         months, months, numAmount, numAmount, txDate]
       );
       msiPlan = { id: msiRes.lastID, monthly_amount: monthly, installments_total: months };
     }
@@ -344,7 +367,7 @@ async function addCardExpense(req, res) {
 
 /**
  * DELETE /api/debts/:id
- * Safely deletes a debt and all its associated records using dbRun (no withTransaction complexity).
+ * Safely deletes a debt and all its associated records using dbRun directly.
  */
 async function deleteDebt(req, res) {
   try {
@@ -361,20 +384,14 @@ async function deleteDebt(req, res) {
     // 2. Delete the debt record
     await dbRun('DELETE FROM debts WHERE id = ?', [id]);
 
-    // 3. If there was a linked credit card account, clean it up
+    // 3. Clean up linked credit card account if it exists
     if (accId) {
-      // Remove installment plans linked to account
       await dbRun('DELETE FROM installment_plans WHERE account_id = ? OR credit_card_id = ?', [accId, accId]);
-
-      // Unlink transactions (preserve history but remove FK reference)
-      await dbRun('UPDATE transactions SET account_id = NULL WHERE account_id = ? AND type = \'card_purchase\'', [accId]);
+      // Preserve transaction history but unlink from account
+      await dbRun("UPDATE transactions SET account_id = NULL WHERE account_id = ? AND type = 'card_purchase'", [accId]);
       await dbRun('UPDATE transactions SET destination_account_id = NULL WHERE destination_account_id = ?', [accId]);
-      await dbRun('UPDATE transactions SET source_account_id = NULL WHERE source_account_id = ? AND type = \'card_payment\'', [accId]);
-
-      // Delete remaining transactions that still reference this account
+      await dbRun("UPDATE transactions SET source_account_id = NULL WHERE source_account_id = ? AND type = 'card_payment'", [accId]);
       await dbRun('DELETE FROM transactions WHERE account_id = ?', [accId]);
-
-      // Delete the account
       await dbRun("DELETE FROM accounts WHERE id = ? AND type = 'credit_card'", [accId]);
     }
 
@@ -399,7 +416,7 @@ async function getInstallmentPlans(req, res) {
 
 /**
  * POST /api/installment-plans
- * Registers an existing MSI plan for a debt/card.
+ * Registers an existing MSI plan manually (e.g. already-existing compras en MSI).
  */
 async function createInstallmentPlan(req, res) {
   try {
