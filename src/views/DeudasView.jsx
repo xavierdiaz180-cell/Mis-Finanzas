@@ -400,21 +400,21 @@ export default function DeudasView({ onRefresh, hideValues = false }) {
 
                 </div>
 
-                {/* Action buttons */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+                {/* Action buttons (Realizar Pago & Configurar MSI) */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
                   <button 
                     onClick={() => { setSelectedDebt(debt); setShowPayModal(true); setPayAmount(noIntPayVal || debt.current_balance || ''); }}
                     className="nav-tab-btn active"
-                    style={{ justifyContent: 'center', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '0.55rem' }}
+                    style={{ justifyContent: 'center', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '0.65rem', fontWeight: '700', fontSize: '0.85rem' }}
                   >
-                    Realizar Pago
+                    💳 Realizar Pago
                   </button>
 
                   <button 
                     onClick={() => setMsiModalDebt(debt)}
-                    style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: '600' }}
+                    style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', color: '#c4b5fd', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', fontWeight: '600', padding: '0.65rem' }}
                   >
-                    <Settings size={14} /> Configurar MSI
+                    <Settings size={15} /> Configurar MSI
                   </button>
                 </div>
               </div>
