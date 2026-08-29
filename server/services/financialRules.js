@@ -17,7 +17,7 @@ function getLocalDateString(dateObj = new Date()) {
   return formatter.format(dateObj);
 }
 
-async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
+async function calculateAccountMSIBreakdown(accId, debtId, currentPeriodExpenses) {
   let query = 'SELECT * FROM installment_plans WHERE 1=0';
   const params = [];
   if (accId && debtId) {
@@ -40,8 +40,9 @@ async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
     return sum + (parseFloat(p.monthly_amount) * remInst);
   }, 0);
 
-  const revolvingBalance = Math.max(0, parseFloat(totalBalance || 0) - msiRemainingTotal);
-  const noInterestPayment = activePlans.length > 0 ? (msiMonthlySum + revolvingBalance) : parseFloat(totalBalance || 0);
+  const revolvingBalance = Math.max(0, parseFloat(currentPeriodExpenses || 0));
+  const cardBalance = revolvingBalance + msiMonthlySum;
+  const noInterestPayment = cardBalance;
 
   return {
     msiPlans: plans,
@@ -49,6 +50,7 @@ async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
     msiMonthlySum,
     msiRemainingTotal,
     revolvingBalance,
+    cardBalance,
     noInterestPayment
   };
 }
@@ -112,7 +114,7 @@ async function syncCreditCardsAndDebts() {
       }
     }
 
-    // 1. Sync accounts to debts considering Cutoff Dates (Fecha de Corte)
+    // 1. Sync accounts to debts considering Cutoff Dates and MSI Monthly Installments
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
     for (const acc of creditAccounts) {
       const matchingDebt = await dbGet(
@@ -140,18 +142,15 @@ async function syncCreditCardsAndDebts() {
       }
 
       const txRow = await dbGet(txQuery, txParams);
-      const netTxBalance = parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments);
+      const netTxBalance = Math.max(0, parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments));
 
-      let newAccBalance = parseFloat(acc.balance || 0);
-      if (matchingDebt && parseFloat(matchingDebt.current_balance) < newAccBalance) {
+      const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debtId, netTxBalance);
+      let newAccBalance = msiBreakdown.cardBalance;
+      if (matchingDebt && parseFloat(matchingDebt.current_balance) < newAccBalance && parseFloat(matchingDebt.current_balance) > 0) {
         newAccBalance = parseFloat(matchingDebt.current_balance);
-      } else if (netTxBalance >= 0) {
-        newAccBalance = netTxBalance;
       }
 
-      const msiBreakdown = await calculateAccountMSIBreakdown(acc.id, debtId, newAccBalance);
       const calculatedNoInterest = msiBreakdown.noInterestPayment;
-
       const creditLimit = parseFloat(acc.credit_limit || 0);
       const newAvailable = creditLimit > 0 ? Math.max(0, creditLimit - newAccBalance) : parseFloat(acc.available_credit || 0);
 
