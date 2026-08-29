@@ -32,8 +32,8 @@ async function registerExistingMSI({
     const card = cardRes.rows[0];
     if (!card) throw new Error('Tarjeta de crédito no encontrada.');
 
-    // Find matching debt record if exists
-    const debtRes = await client.query("SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) = LOWER($1) OR LOWER(name) LIKE LOWER($2))", [card.name, `%${card.name}%`]);
+    // Find matching debt record using strict account_id relationship
+    const debtRes = await client.query("SELECT * FROM debts WHERE account_id = $1 OR (type = 'credit_card' AND id = $1)", [credit_card_id]);
     const debtId = debtRes.rows[0]?.id || null;
 
     const msiRes = await client.query(

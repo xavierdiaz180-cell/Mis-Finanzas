@@ -35,8 +35,8 @@ async function executeIncome({ destination_account_id, amount, concept, category
     await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, destination_account_id]);
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, destination_account_id, account_id, source, status)
-       VALUES ($1, 'income', $2, $3, $4, $5, $5, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, destination_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'income', $2, $3, $4, $5, $5, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, category, concept || 'Ingreso registrado', destination_account_id]
     );
 
@@ -55,7 +55,7 @@ async function executeIncome({ destination_account_id, amount, concept, category
 }
 
 /**
- * ACC-002: Gasto
+ * ACC-002: Gasto (Con validación de Fondos Insuficientes para cuentas líquidas)
  */
 async function executeExpense({ source_account_id, amount, concept, category = 'Otros', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -64,7 +64,7 @@ async function executeExpense({ source_account_id, amount, concept, category = '
   if (!source_account_id) throw new Error('Cuenta origen requerida.');
 
   return await withTransaction(async (client) => {
-    const accRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
+    const accRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
     const acc = accRes.rows[0];
     if (!acc) throw new Error('Cuenta origen no encontrada.');
 
@@ -75,12 +75,16 @@ async function executeExpense({ source_account_id, amount, concept, category = '
 
       await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, source_account_id]);
     } else {
+      // Liquid account validation
+      if (parseFloat(acc.balance) < numAmount) {
+        throw new Error('Fondos insuficientes');
+      }
       await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
     }
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status)
-       VALUES ($1, 'expense', $2, $3, $4, $5, $5, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'expense', $2, $3, $4, $5, $5, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, category, concept || 'Gasto registrado', source_account_id]
     );
 
@@ -92,7 +96,7 @@ async function executeExpense({ source_account_id, amount, concept, category = '
 }
 
 /**
- * TRF-001: Transferencia entre cuentas propias (No es gasto ni ingreso, patrimonio no cambia)
+ * TRF-001: Transferencia entre cuentas propias (Con validación de Fondos Insuficientes)
  */
 async function executeTransfer({ source_account_id, destination_account_id, amount, concept = 'Transferencia interna', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -102,16 +106,22 @@ async function executeTransfer({ source_account_id, destination_account_id, amou
   if (source_account_id === destination_account_id) throw new Error('Origen y destino deben ser distintos.');
 
   return await withTransaction(async (client) => {
-    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
-    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1', [destination_account_id]);
-    if (!srcRes.rows[0] || !dstRes.rows[0]) throw new Error('Cuenta origen o destino no encontrada.');
+    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
+    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [destination_account_id]);
+    const src = srcRes.rows[0];
+    const dst = dstRes.rows[0];
+    if (!src || !dst) throw new Error('Cuenta origen o destino no encontrada.');
+
+    if (src.type !== 'credit_card' && parseFloat(src.balance) < numAmount) {
+      throw new Error('Fondos insuficientes');
+    }
 
     await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
     await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, destination_account_id]);
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status)
-       VALUES ($1, 'transfer', $2, 'Transferencias', $3, $4, $5, $4, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'transfer', $2, 'Transferencias', $3, $4, $5, $4, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, concept, source_account_id, destination_account_id]
     );
 
@@ -123,7 +133,7 @@ async function executeTransfer({ source_account_id, destination_account_id, amou
 }
 
 /**
- * CARD-001 / MSI-002: Compra con Tarjeta de Crédito (Una exhibición o MSI)
+ * CARD-001 / MSI-002: Compra con Tarjeta de Crédito (Una exhibición o MSI, relacionando estrictamente por IDs)
  */
 async function executeCardPurchase({ credit_card_id, amount, concept, category = 'Otros', is_msi = false, msi_months = 1, date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -131,7 +141,7 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
 
   return await withTransaction(async (client) => {
-    const accRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card'", [credit_card_id]);
+    const accRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card' FOR UPDATE", [credit_card_id]);
     const card = accRes.rows[0];
     if (!card) throw new Error('Tarjeta de crédito no encontrada.');
 
@@ -141,12 +151,12 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
 
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, credit_card_id]);
 
-    // Update debts table
-    await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND (LOWER(name) = LOWER($2) OR LOWER(name) LIKE LOWER($3))", [numAmount, card.name, `%${card.name}%`]);
+    // Update debts table using account_id (strict ID relation, zero string matching)
+    await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE account_id = $2 OR type = 'credit_card' AND id = $2", [numAmount, credit_card_id]);
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status)
-       VALUES ($1, 'card_purchase', $2, $3, $4, $5, $5, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'card_purchase', $2, $3, $4, $5, $5, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, category, concept || 'Compra con tarjeta', credit_card_id]
     );
     const txId = txRes.rows[0].id;
@@ -175,7 +185,7 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
 }
 
 /**
- * CARD-002: Pago de Tarjeta de Crédito (Desde cuenta líquida origen)
+ * CARD-002: Pago de Tarjeta de Crédito (Con validación de Fondos Insuficientes en cuenta origen)
  */
 async function executeCardPayment({ source_account_id, credit_card_id, amount, concept = 'Pago de tarjeta', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -183,11 +193,16 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
 
   return await withTransaction(async (client) => {
-    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
-    const cardRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card'", [credit_card_id]);
+    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
+    const cardRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card' FOR UPDATE", [credit_card_id]);
     const src = srcRes.rows[0];
     const card = cardRes.rows[0];
     if (!src || !card) throw new Error('Cuenta origen o tarjeta de crédito no encontrada.');
+
+    // Liquid account validation
+    if (src.type !== 'credit_card' && parseFloat(src.balance) < numAmount) {
+      throw new Error('Fondos insuficientes');
+    }
 
     // Reduce liquid account
     await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
@@ -199,12 +214,12 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
 
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newCardBal, newAvail, credit_card_id]);
 
-    // Update debts table
-    await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND (LOWER(name) = LOWER($2) OR LOWER(name) LIKE LOWER($3))", [numAmount, card.name, `%${card.name}%`]);
+    // Update debts table using strict account_id relation
+    await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE account_id = $2 OR type = 'credit_card' AND id = $2", [numAmount, credit_card_id]);
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status)
-       VALUES ($1, 'card_payment', $2, 'Pago de Deuda', $3, $4, $5, $4, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'card_payment', $2, 'Pago de Deuda', $3, $4, $5, $4, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, concept, source_account_id, credit_card_id]
     );
 
@@ -216,7 +231,7 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
 }
 
 /**
- * INV-001: Aporte a Inversión (Desde cuenta líquida origen a inversión)
+ * INV-001: Aporte a Inversión (Con validación de Fondos Insuficientes en cuenta líquida)
  */
 async function executeInvestmentContribution({ source_account_id, investment_id, amount, concept = 'Aportación a inversión', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -224,11 +239,16 @@ async function executeInvestmentContribution({ source_account_id, investment_id,
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
 
   return await withTransaction(async (client) => {
-    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
-    const invRes = await client.query('SELECT * FROM investments WHERE id = $1', [investment_id]);
+    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
+    const invRes = await client.query('SELECT * FROM investments WHERE id = $1 FOR UPDATE', [investment_id]);
     const src = srcRes.rows[0];
     const inv = invRes.rows[0];
     if (!src || !inv) throw new Error('Cuenta origen o inversión no encontrada.');
+
+    // Liquid account validation
+    if (src.type !== 'credit_card' && parseFloat(src.balance) < numAmount) {
+      throw new Error('Fondos insuficientes');
+    }
 
     // Reduce liquid account
     await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
@@ -250,8 +270,8 @@ async function executeInvestmentContribution({ source_account_id, investment_id,
     );
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_investment_id, account_id, source, status)
-       VALUES ($1, 'investment_contribution', $2, 'Inversiones', $3, $4, $5, $4, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_investment_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'investment_contribution', $2, 'Inversiones', $3, $4, $5, $4, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, concept, source_account_id, investment_id]
     );
 
@@ -271,8 +291,8 @@ async function executeInvestmentWithdrawal({ investment_id, destination_account_
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
 
   return await withTransaction(async (client) => {
-    const invRes = await client.query('SELECT * FROM investments WHERE id = $1', [investment_id]);
-    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1', [destination_account_id]);
+    const invRes = await client.query('SELECT * FROM investments WHERE id = $1 FOR UPDATE', [investment_id]);
+    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [destination_account_id]);
     const inv = invRes.rows[0];
     const dst = dstRes.rows[0];
     if (!inv || !dst) throw new Error('Inversión o cuenta destino no encontrada.');
@@ -299,8 +319,8 @@ async function executeInvestmentWithdrawal({ investment_id, destination_account_
     await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, destination_account_id]);
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_investment_id, destination_account_id, account_id, source, status)
-       VALUES ($1, 'investment_withdrawal', $2, 'Inversiones', $3, $4, $5, $5, 'manual', 'confirmed') RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_investment_id, destination_account_id, account_id, source, status, transaction_datetime)
+       VALUES ($1, 'investment_withdrawal', $2, 'Inversiones', $3, $4, $5, $5, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, concept, investment_id, destination_account_id]
     );
 
@@ -322,7 +342,7 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
   if (isNaN(newVal) || newVal < 0) throw new Error('El nuevo valor documentado debe ser un número no negativo.');
 
   return await withTransaction(async (client) => {
-    const invRes = await client.query('SELECT * FROM investments WHERE id = $1', [investment_id]);
+    const invRes = await client.query('SELECT * FROM investments WHERE id = $1 FOR UPDATE', [investment_id]);
     const inv = invRes.rows[0];
     if (!inv) throw new Error('Inversión no encontrada.');
 
@@ -340,8 +360,8 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
     );
 
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_investment_id, source, status, notes)
-       VALUES ($1, 'investment_valuation', $2, 'Inversiones', $3, $4, 'manual', 'confirmed', $5) RETURNING id`,
+      `INSERT INTO transactions (date, type, amount, category, concept, source_investment_id, source, status, notes, transaction_datetime)
+       VALUES ($1, 'investment_valuation', $2, 'Inversiones', $3, $4, 'manual', 'confirmed', $5, CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, Math.abs(variance), concept, investment_id, JSON.stringify({ old_value: oldVal, new_value: newVal, variance })]
     );
 

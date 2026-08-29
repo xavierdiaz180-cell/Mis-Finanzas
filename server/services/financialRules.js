@@ -118,8 +118,8 @@ async function syncCreditCardsAndDebts() {
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
     for (const acc of creditAccounts) {
       const matchingDebt = await dbGet(
-        "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-        [acc.name, `%${acc.name.toLowerCase()}%`, acc.name]
+        "SELECT * FROM debts WHERE account_id = ? OR (type = 'credit_card' AND id = ?)",
+        [acc.id, acc.id]
       );
       const debtId = matchingDebt ? matchingDebt.id : null;
 
@@ -194,9 +194,10 @@ async function syncCreditCardsAndDebts() {
     // 2. Sync debts to accounts if debt is present
     const debts = await dbAll("SELECT * FROM debts WHERE type = 'credit_card'");
     for (const debt of debts) {
+      const targetAccId = debt.account_id || debt.id;
       const acc = await dbGet(
-        "SELECT * FROM accounts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
-        [debt.name, `%${debt.name.toLowerCase()}%`, debt.name]
+        "SELECT * FROM accounts WHERE id = ? AND type = 'credit_card'",
+        [targetAccId]
       );
       if (acc) {
         const rawCutoff = acc.cutoff_date || debt.cutoff_date;

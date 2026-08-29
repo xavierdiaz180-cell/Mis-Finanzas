@@ -159,6 +159,7 @@ async function initDatabase() {
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS min_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS no_interest_payment REAL DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS cutoff_date TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE debts ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES accounts(id)`).catch(() => {});
 
   // Add missing V2 columns to accounts
   await pool.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS min_payment REAL DEFAULT 0`).catch(() => {});
@@ -173,6 +174,7 @@ async function initDatabase() {
   await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_account_id INTEGER REFERENCES accounts(id)`).catch(() => {});
   await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_investment_id INTEGER`).catch(() => {});
   await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_investment_id INTEGER`).catch(() => {});
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS transaction_datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
   await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
   await pool.query(`ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_type_check`).catch(() => {});
   await pool.query(`

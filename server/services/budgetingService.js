@@ -36,12 +36,13 @@ async function getDailyBudgetStatus(currentDateStr = null) {
   const periodStartStr = periodStart.toISOString();
   const periodEndStr = periodEnd.toISOString();
 
-  // Query transactions in current period that consume budget
+  // Query transactions in current period using financial movement datetime (transaction_datetime)
   // Budget-consuming transactions: 'expense', 'card_purchase' (EXCLUDES transfer, card_payment, investment_contribution, investment_withdrawal, income)
   const spentRow = await dbGet(
     `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
      WHERE type IN ('expense', 'card_purchase') 
-       AND created_at >= $1 AND created_at < $2`,
+       AND COALESCE(transaction_datetime, created_at) >= $1 
+       AND COALESCE(transaction_datetime, created_at) < $2`,
     [periodStartStr, periodEndStr]
   );
   const actualSpent = parseFloat(spentRow?.total || 0);
