@@ -10,9 +10,14 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
   const fetchLiveSummary = () => {
     setLoadingMetrics(true);
     fetch(`${API_BASE}/api/summary`)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      })
       .then(data => {
-        setLocalSummary(data);
+        if (data && !data.error && data.liquid_money !== undefined) {
+          setLocalSummary(data);
+        }
       })
       .catch(err => console.error('Error fetching summary in InicioView:', err))
       .finally(() => setLoadingMetrics(false));

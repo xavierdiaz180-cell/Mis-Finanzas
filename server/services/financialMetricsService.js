@@ -8,7 +8,7 @@ const budgetingService = require('./budgetingService');
  */
 
 async function getSummaryMetrics() {
-  const accounts = await dbAll("SELECT * FROM accounts WHERE (active = 1 OR active IS TRUE OR active IS NULL)");
+  const accounts = await dbAll("SELECT * FROM accounts WHERE active != 0 OR active IS NULL");
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
   // 1. LIQUID MONEY (Nómina, Débito, Efectivo, Ahorro - excludes credit cards and loans)
