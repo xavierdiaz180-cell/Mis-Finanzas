@@ -263,12 +263,6 @@ export default function GastosView({ onRefresh, hideValues = false }) {
           />
         )}
 
-        {showExcelExport && (
-          <ExportExcelModal 
-            onClose={() => setShowExcelExport(false)} 
-          />
-        )}
-
         {/* Validation & Prompting Modal/Bar before Auto-Save */}
         {pendingExpense && (
           <div style={{ marginTop: '1.25rem', background: 'rgba(18, 26, 43, 0.95)', border: '1px solid var(--border-glow)', padding: '1.25rem', borderRadius: 'var(--radius-sm)' }}>
@@ -454,6 +448,11 @@ export default function GastosView({ onRefresh, hideValues = false }) {
         </div>
       </div>
 
+      {showExcelExport && (
+        <ExportExcelModal 
+          onClose={() => setShowExcelExport(false)} 
+        />
+      )}
     </div>
   );
 }

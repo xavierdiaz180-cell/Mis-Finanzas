@@ -181,7 +181,7 @@ export default function ExportExcelModal({ onClose }) {
       background: 'rgba(0,0,0,0.85)',
       backdropFilter: 'blur(8px)',
       display: 'flex', justifyContent: 'center', alignItems: 'center',
-      zIndex: 1100, padding: '1rem'
+      zIndex: 9999, padding: '1rem'
     }}>
       <div className="glass-card" style={{ maxWidth: '540px', width: '100%' }}>
         

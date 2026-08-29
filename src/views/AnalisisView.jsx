@@ -169,10 +169,6 @@ export default function AnalisisView({ onRefresh }) {
         </div>
       </div>
 
-      {showExcelExport && (
-        <ExportExcelModal onClose={() => setShowExcelExport(false)} />
-      )}
-
       {/* AI Deep Analysis Result Section */}
       {deepAnalysis && (
         <div className="glass-card" style={{ border: '1px solid rgba(167, 139, 250, 0.4)', background: 'linear-gradient(180deg, rgba(167, 139, 250, 0.05) 0%, rgba(15, 23, 42, 0.8) 100%)' }}>
@@ -605,6 +601,9 @@ export default function AnalisisView({ onRefresh }) {
         </div>
       )}
 
+      {showExcelExport && (
+        <ExportExcelModal onClose={() => setShowExcelExport(false)} />
+      )}
     </div>
   );
 }
