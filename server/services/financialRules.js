@@ -53,6 +53,32 @@ async function calculateAccountMSIBreakdown(accId, debtId, totalBalance) {
   };
 }
 
+function getCutoffDateThreshold(cutoffDateValue) {
+  if (!cutoffDateValue) return null;
+  const str = String(cutoffDateValue).trim();
+
+  if (str.length === 10 && str.includes('-')) {
+    return str;
+  }
+
+  const dayNum = parseInt(str, 10);
+  if (!isNaN(dayNum) && dayNum >= 1 && dayNum <= 31) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    let cutoff = new Date(year, month, dayNum);
+    if (now < cutoff) {
+      cutoff = new Date(year, month - 1, dayNum);
+    }
+    const yyyy = cutoff.getFullYear();
+    const mm = String(cutoff.getMonth() + 1).padStart(2, '0');
+    const dd = String(cutoff.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+}
+
 async function syncCreditCardsAndDebts() {
   try {
     // 0. Auto-relink installment_plans to live account_id and debt_id by card name
@@ -86,29 +112,40 @@ async function syncCreditCardsAndDebts() {
       }
     }
 
-    // 1. Sync accounts to debts and calculate MSI breakdowns
+    // 1. Sync accounts to debts considering Cutoff Dates (Fecha de Corte)
     const creditAccounts = await dbAll("SELECT * FROM accounts WHERE type = 'credit_card'");
     for (const acc of creditAccounts) {
-      const txRow = await dbGet(`
-        SELECT 
-          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
-          COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
-        FROM transactions 
-        WHERE account_id = ?
-      `, [acc.id]);
-
-      const netTxBalance = parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments);
-
       const matchingDebt = await dbGet(
         "SELECT * FROM debts WHERE type = 'credit_card' AND (LOWER(name) = LOWER(?) OR LOWER(name) LIKE ? OR LOWER(?) LIKE LOWER(name))",
         [acc.name, `%${acc.name.toLowerCase()}%`, acc.name]
       );
       const debtId = matchingDebt ? matchingDebt.id : null;
 
+      const rawCutoff = acc.cutoff_date || (matchingDebt ? matchingDebt.cutoff_date : null);
+      const cutoffThreshold = getCutoffDateThreshold(rawCutoff);
+
+      let txQuery = `
+        SELECT 
+          COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expenses,
+          COALESCE(SUM(CASE WHEN type IN ('payment', 'income') THEN amount ELSE 0 END), 0) as total_payments
+        FROM transactions 
+        WHERE account_id = ?
+      `;
+      const txParams = [acc.id];
+
+      // If cutoff date is set, exclude past transactions from previous billing cycles
+      if (cutoffThreshold) {
+        txQuery += ' AND date > ?';
+        txParams.push(cutoffThreshold);
+      }
+
+      const txRow = await dbGet(txQuery, txParams);
+      const netTxBalance = parseFloat(txRow.total_expenses) - parseFloat(txRow.total_payments);
+
       let newAccBalance = parseFloat(acc.balance || 0);
       if (matchingDebt && parseFloat(matchingDebt.current_balance) < newAccBalance) {
         newAccBalance = parseFloat(matchingDebt.current_balance);
-      } else if (netTxBalance > 0 && newAccBalance < netTxBalance) {
+      } else if (netTxBalance >= 0) {
         newAccBalance = netTxBalance;
       }
 
