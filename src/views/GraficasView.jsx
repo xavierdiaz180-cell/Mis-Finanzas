@@ -92,42 +92,14 @@ export default function GraficasView({ hideValues = false }) {
     loadData();
   }, [queryParams]);
 
-  // Filter combined timeline based on selected period
+  // Combined timeline and monthly flow (automatically filtered by backend with global date range)
   const filteredTimeline = useMemo(() => {
-    if (!data?.patrimonioTimeline || data.patrimonioTimeline.length === 0) return [];
-    const tl = data.patrimonioTimeline;
-    const now = new Date();
+    return data?.patrimonioTimeline || [];
+  }, [data?.patrimonioTimeline]);
 
-    if (period === 'ALL') return tl;
-
-    let cutoffDate;
-    if (period === '3M') {
-      cutoffDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-    } else if (period === '6M') {
-      cutoffDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-    } else if (period === '12M') {
-      cutoffDate = new Date(now.getFullYear(), now.getMonth() - 12, now.getDate());
-    } else if (period === 'YTD') {
-      cutoffDate = new Date(now.getFullYear(), 0, 1);
-    }
-
-    const cutoffStr = cutoffDate ? cutoffDate.toISOString().split('T')[0] : '1970-01-01';
-    const filtered = tl.filter(p => p.date >= cutoffStr);
-    return filtered.length > 0 ? filtered : tl.slice(-10);
-  }, [data?.patrimonioTimeline, period]);
-
-  // Filter monthly flow based on selected period
   const filteredMonthlyFlow = useMemo(() => {
-    if (!data?.monthlyFlow || data.monthlyFlow.length === 0) return [];
-    if (period === '3M') return data.monthlyFlow.slice(-3);
-    if (period === '6M') return data.monthlyFlow.slice(-6);
-    if (period === '12M') return data.monthlyFlow.slice(-12);
-    if (period === 'YTD') {
-      const currentYear = new Date().getFullYear().toString();
-      return data.monthlyFlow.filter(m => m.month && m.month.startsWith(currentYear));
-    }
-    return data.monthlyFlow;
-  }, [data?.monthlyFlow, period]);
+    return data?.monthlyFlow || [];
+  }, [data?.monthlyFlow]);
 
   if (loading) {
     return (
@@ -149,7 +121,8 @@ export default function GraficasView({ hideValues = false }) {
   } = data || {};
 
   const isNetWorthPositive = (summary.net_worth || 0) >= 0;
-  const isMonthNetPositive = (summary.this_month_net || 0) >= 0;
+  const periodNetVal = summary?.period?.net_flow !== undefined ? summary.period.net_flow : (monthlyFlowSummary?.thisMonth?.net || 0);
+  const isMonthNetPositive = periodNetVal >= 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem', width: '100%', maxWidth: '1320px', margin: '0 auto' }}>

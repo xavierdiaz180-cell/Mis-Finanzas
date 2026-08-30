@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState } from 'react';
 
 const DateRangeContext = createContext(null);
 
+function formatDateString(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function getPresetDates(presetKey) {
   const now = new Date();
   const year = now.getFullYear();
@@ -12,8 +19,8 @@ export function getPresetDates(presetKey) {
     const end = new Date(year, month + 1, 0);
     const label = start.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatDateString(start),
+      endDate: formatDateString(end),
       preset: 'current_month',
       label: label.charAt(0).toUpperCase() + label.slice(1)
     };
@@ -24,8 +31,8 @@ export function getPresetDates(presetKey) {
     const end = new Date(year, month, 0);
     const label = start.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatDateString(start),
+      endDate: formatDateString(end),
       preset: 'prev_month',
       label: label.charAt(0).toUpperCase() + label.slice(1)
     };
@@ -35,8 +42,8 @@ export function getPresetDates(presetKey) {
     const start = new Date(year, month - 2, 1);
     const end = new Date(year, month + 1, 0);
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatDateString(start),
+      endDate: formatDateString(end),
       preset: 'last_3m',
       label: `${start.toLocaleDateString('es-MX', { month: 'short' })} — ${end.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })}`
     };
@@ -46,8 +53,8 @@ export function getPresetDates(presetKey) {
     const start = new Date(year, month - 5, 1);
     const end = new Date(year, month + 1, 0);
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatDateString(start),
+      endDate: formatDateString(end),
       preset: 'last_6m',
       label: `${start.toLocaleDateString('es-MX', { month: 'short' })} — ${end.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' })}`
     };
@@ -57,8 +64,8 @@ export function getPresetDates(presetKey) {
     const start = new Date(year, 0, 1);
     const end = new Date(year, 11, 31);
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatDateString(start),
+      endDate: formatDateString(end),
       preset: 'ytd',
       label: `Año ${year}`
     };
@@ -78,8 +85,8 @@ export function getPresetDates(presetKey) {
   const end = new Date(year, month + 1, 0);
   const label = start.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
   return {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0],
+    startDate: formatDateString(start),
+    endDate: formatDateString(end),
     preset: 'current_month',
     label: label.charAt(0).toUpperCase() + label.slice(1)
   };

@@ -23,22 +23,38 @@ export default function AnalisisView({ onRefresh }) {
   const [accountId, setAccountId] = useState('');
 
 
+  const [loadError, setLoadError] = useState(null);
+
   const loadData = () => {
+    setLoadError(null);
     fetch(`${API_BASE}/api/analysis`)
-      .then(res => res.json())
-      .then(data => setAnalysisData(data))
-      .catch(err => console.error('Error al cargar análisis:', err));
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        setAnalysisData(data);
+      })
+      .catch(err => {
+        console.error('Error al cargar análisis:', err);
+        setLoadError(err.message);
+      });
 
     fetch(`${API_BASE}/api/recurring`)
       .then(res => res.json())
-      .then(data => setRecurringExpenses(data));
+      .then(data => setRecurringExpenses(Array.isArray(data) ? data : []))
+      .catch(err => console.error('Error al cargar recurrentes:', err));
 
     fetch(`${API_BASE}/api/accounts`)
       .then(res => res.json())
       .then(data => {
-        setAccounts(data);
-        if (data.length > 0) setAccountId(data[0].id);
-      });
+        if (Array.isArray(data)) {
+          setAccounts(data);
+          if (data.length > 0) setAccountId(data[0].id);
+        }
+      })
+      .catch(err => console.error('Error al cargar cuentas:', err));
   };
 
   useEffect(() => {
@@ -95,7 +111,27 @@ export default function AnalisisView({ onRefresh }) {
       });
   };
 
-  if (!analysisData) return <div style={{ color: 'var(--text-muted)' }}>Cargando datos de análisis...</div>;
+  if (loadError) {
+    return (
+      <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
+        <AlertCircle size={36} style={{ color: '#f43f5e', margin: '0 auto 1rem' }} />
+        <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Error al cargar datos de análisis</h3>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginBottom: '1.25rem' }}>{loadError}</p>
+        <button onClick={loadData} className="nav-tab-btn active" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', margin: '0 auto' }}>
+          <RefreshCw size={15} /> Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (!analysisData) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem 1rem', gap: '1rem' }}>
+        <div style={{ width: 40, height: 40, border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Cargando datos de análisis...</p>
+      </div>
+    );
+  }
 
   const {
     monthly_trends = [],
