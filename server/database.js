@@ -370,13 +370,19 @@ async function seedInitialData() {
 
   const userCount = await dbGet('SELECT COUNT(*) as count FROM users');
   if (userCount.count === 0) {
-    const hash = await bcrypt.hash('Hola.321', 10);
+    // Credentials from environment variables — fallback to defaults only for local dev
+    const adminEmail    = process.env.ADMIN_EMAIL    || 'xavierdiaz1@live.com.mx';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Hola.321';
+    const adminName     = process.env.ADMIN_NAME     || 'Xavier Díaz';
+
+    const hash = await bcrypt.hash(adminPassword, 10);
     await pool.query(
       `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING`,
-      ['xavierdiaz1@live.com.mx', hash, 'Xavier Díaz']
+      [adminEmail, hash, adminName]
     );
-    console.log('Usuario administrador sembrado: xavierdiaz1@live.com.mx');
+    console.log('Usuario administrador sembrado:', adminEmail);
   }
+
 
   const accountCount = await dbGet('SELECT COUNT(*) as count FROM accounts');
   if (accountCount.count === 0) {

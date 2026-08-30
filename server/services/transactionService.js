@@ -28,7 +28,7 @@ async function executeIncome({ destination_account_id, amount, concept, category
   if (!destination_account_id) throw new Error('Cuenta destino requerida.');
 
   return await withTransaction(async (client) => {
-    const accRes = await client.query('SELECT * FROM accounts WHERE id = $1', [destination_account_id]);
+    const accRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [destination_account_id]);
     const acc = accRes.rows[0];
     if (!acc) throw new Error('Cuenta destino no encontrada.');
 
@@ -39,16 +39,18 @@ async function executeIncome({ destination_account_id, amount, concept, category
        VALUES ($1, 'income', $2, $3, $4, $5, $5, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
       [txDate, numAmount, category, concept || 'Ingreso registrado', destination_account_id]
     );
+    const txId = txRes.rows[0].id;
 
     const incomeType = acc.type === 'payroll' ? 'payroll' : 'extraordinary';
+    // Use txId as FK so deletion can find the exact row
     await client.query(
-      `INSERT INTO incomes (date, amount, type, account_id) VALUES ($1, $2, $3, $4)`,
-      [txDate, numAmount, incomeType, destination_account_id]
+      `INSERT INTO incomes (date, amount, type, account_id, source_document_id) VALUES ($1, $2, $3, $4, $5)`,
+      [txDate, numAmount, incomeType, destination_account_id, txId]
     );
 
     return {
       success: true,
-      transaction_id: txRes.rows[0].id,
+      transaction_id: txId,
       new_balance: parseFloat(acc.balance) + numAmount
     };
   });
@@ -72,10 +74,9 @@ async function executeExpense({ source_account_id, amount, concept, category = '
       const creditLimit = parseFloat(acc.credit_limit) || 0;
       const newBal = parseFloat(acc.balance) + numAmount;
       const newAvail = creditLimit > 0 ? Math.max(0, creditLimit - newBal) : Math.max(0, parseFloat(acc.available_credit) - numAmount);
-
       await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, source_account_id]);
+      await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND account_id = $2", [numAmount, source_account_id]);
     } else {
-      // Liquid account validation
       if (parseFloat(acc.balance) < numAmount) {
         throw new Error('Fondos insuficientes');
       }
@@ -96,18 +97,23 @@ async function executeExpense({ source_account_id, amount, concept, category = '
 }
 
 /**
- * TRF-001: Transferencia entre cuentas propias (Con validación de Fondos Insuficientes)
+ * TRF-001: Transferencia entre cuentas propias
  */
 async function executeTransfer({ source_account_id, destination_account_id, amount, concept = 'Transferencia interna', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
   const numAmount = parseFloat(amount);
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
   if (!source_account_id || !destination_account_id) throw new Error('Cuenta origen y destino son requeridas.');
-  if (source_account_id === destination_account_id) throw new Error('Origen y destino deben ser distintos.');
+  if (parseInt(source_account_id, 10) === parseInt(destination_account_id, 10)) throw new Error('Origen y destino deben ser distintos.');
 
   return await withTransaction(async (client) => {
-    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
-    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [destination_account_id]);
+    // Lock in consistent numeric order to avoid deadlocks
+    const ids = [source_account_id, destination_account_id].map(Number).sort((a, b) => a - b);
+    await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [ids[0]]);
+    await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [ids[1]]);
+
+    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
+    const dstRes = await client.query('SELECT * FROM accounts WHERE id = $1', [destination_account_id]);
     const src = srcRes.rows[0];
     const dst = dstRes.rows[0];
     if (!src || !dst) throw new Error('Cuenta origen o destino no encontrada.');
@@ -133,12 +139,13 @@ async function executeTransfer({ source_account_id, destination_account_id, amou
 }
 
 /**
- * CARD-001 / MSI-002: Compra con Tarjeta de Crédito (Una exhibición o MSI, relacionando estrictamente por IDs)
+ * CARD-001 / MSI-002: Compra con Tarjeta de Crédito (Una exhibición o MSI)
  */
 async function executeCardPurchase({ credit_card_id, amount, concept, category = 'Otros', is_msi = false, msi_months = 1, date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
   const numAmount = parseFloat(amount);
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
+  if (!credit_card_id) throw new Error('Tarjeta de crédito requerida.');
 
   return await withTransaction(async (client) => {
     const accRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card' FOR UPDATE", [credit_card_id]);
@@ -151,7 +158,7 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
 
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, credit_card_id]);
 
-    // Update debts table using account_id (strict ID relation, zero string matching)
+    // Sync debts table (secondary / display source)
     await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND account_id = $2", [numAmount, credit_card_id]);
 
     const txRes = await client.query(
@@ -162,14 +169,20 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
     const txId = txRes.rows[0].id;
 
     let msiPlan = null;
-    if (is_msi && msi_months > 1) {
-      const monthlyInstallment = parseFloat((numAmount / msi_months).toFixed(2));
+    if (is_msi && parseInt(msi_months, 10) > 1) {
+      const months = parseInt(msi_months, 10);
+      const monthlyInstallment = parseFloat((numAmount / months).toFixed(2));
+
+      // Resolve linked debt_id
+      const debtRes = await client.query("SELECT id FROM debts WHERE type = 'credit_card' AND account_id = $1 LIMIT 1", [credit_card_id]);
+      const debtId = debtRes.rows[0]?.id || null;
+
       const msiRes = await client.query(
         `INSERT INTO installment_plans (
-          credit_card_id, account_id, transaction_id, concept, total_amount, original_amount, 
+          credit_card_id, account_id, debt_id, transaction_id, concept, total_amount, original_amount,
           monthly_amount, installments_total, installments_paid, installments_remaining, remaining_balance, remaining_principal, purchase_date, status
-        ) VALUES ($1, $1, $2, $3, $4, $4, $5, $6, 0, $6, $4, $4, $7, 'active') RETURNING *`,
-        [credit_card_id, txId, concept, numAmount, monthlyInstallment, msi_months, txDate]
+        ) VALUES ($1, $1, $2, $3, $4, $5, $5, $6, $7, 0, $7, $5, $5, $8, 'active') RETURNING *`,
+        [credit_card_id, debtId, txId, concept, numAmount, monthlyInstallment, months, txDate]
       );
       msiPlan = msiRes.rows[0];
     }
@@ -185,37 +198,90 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
 }
 
 /**
- * CARD-002: Pago de Tarjeta de Crédito (Con validación de Fondos Insuficientes en cuenta origen)
+ * CARD-002: Pago de Tarjeta de Crédito (Con avance de MSI automático)
+ *
+ * Regla de avance MSI:
+ *   Si pago >= mensualidad del plan MSI más antiguo activo → installments_paid++
+ *   remaining_balance se reduce por esa mensualidad.
  */
 async function executeCardPayment({ source_account_id, credit_card_id, amount, concept = 'Pago de tarjeta', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
   const numAmount = parseFloat(amount);
   if (!numAmount || numAmount <= 0) throw new Error('El monto debe ser positivo.');
+  if (!source_account_id) throw new Error('Cuenta origen requerida.');
+  if (!credit_card_id) throw new Error('Tarjeta de crédito requerida.');
 
   return await withTransaction(async (client) => {
-    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [source_account_id]);
-    const cardRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card' FOR UPDATE", [credit_card_id]);
+    // Lock in consistent order to avoid deadlocks
+    const ids = [source_account_id, credit_card_id].map(Number).sort((a, b) => a - b);
+    await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [ids[0]]);
+    await client.query('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', [ids[1]]);
+
+    const srcRes = await client.query('SELECT * FROM accounts WHERE id = $1', [source_account_id]);
+    const cardRes = await client.query("SELECT * FROM accounts WHERE id = $1 AND type = 'credit_card'", [credit_card_id]);
     const src = srcRes.rows[0];
     const card = cardRes.rows[0];
-    if (!src || !card) throw new Error('Cuenta origen o tarjeta de crédito no encontrada.');
+    if (!src) throw new Error('Cuenta origen no encontrada.');
+    if (!card) throw new Error('Tarjeta de crédito no encontrada.');
 
-    // Liquid account validation
     if (src.type !== 'credit_card' && parseFloat(src.balance) < numAmount) {
-      throw new Error('Fondos insuficientes');
+      throw new Error('Fondos insuficientes en la cuenta de origen.');
     }
 
-    // Reduce liquid account
+    // Deduct from source liquid account
     await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
 
-    // Reduce credit card debt & restore available credit
+    // Reduce card balance & restore available credit
     const creditLimit = parseFloat(card.credit_limit || 0);
     const newCardBal = Math.max(0, parseFloat(card.balance || 0) - numAmount);
-    const newAvail = creditLimit > 0 ? Math.min(creditLimit, creditLimit - newCardBal) : Math.min(creditLimit, parseFloat(card.available_credit || 0) + numAmount);
+    const newAvail = creditLimit > 0
+      ? Math.min(creditLimit, creditLimit - newCardBal)
+      : Math.min(creditLimit, parseFloat(card.available_credit || 0) + numAmount);
 
     await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newCardBal, newAvail, credit_card_id]);
 
-    // Update debts table using strict account_id relation
+    // Sync debts table
     await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND account_id = $2", [numAmount, credit_card_id]);
+
+    // MSI Advancement: oldest active plan gets one installment marked paid if payment covers it
+    const msiRes = await client.query(
+      `SELECT * FROM installment_plans
+       WHERE credit_card_id = $1
+         AND status = 'active'
+         AND installments_paid < installments_total
+       ORDER BY purchase_date ASC NULLS LAST, id ASC
+       LIMIT 1`,
+      [credit_card_id]
+    );
+
+    let msiAdvanced = null;
+    if (msiRes.rows.length > 0) {
+      const plan = msiRes.rows[0];
+      const monthly = parseFloat(plan.monthly_amount);
+      if (numAmount >= monthly) {
+        const newPaid = (parseInt(plan.installments_paid, 10) || 0) + 1;
+        const newRemaining = Math.max(0, (parseInt(plan.installments_remaining, 10) || parseInt(plan.installments_total, 10)) - 1);
+        const newRemBal = parseFloat((monthly * newRemaining).toFixed(2));
+
+        await client.query(
+          `UPDATE installment_plans
+           SET installments_paid = $1,
+               installments_remaining = $2,
+               remaining_balance = $3,
+               remaining_principal = $3,
+               status = CASE WHEN $2 = 0 THEN 'completed' ELSE 'active' END
+           WHERE id = $4`,
+          [newPaid, newRemaining, newRemBal, plan.id]
+        );
+        msiAdvanced = {
+          plan_id: plan.id,
+          concept: plan.concept,
+          installments_paid: newPaid,
+          installments_remaining: newRemaining,
+          remaining_balance: newRemBal
+        };
+      }
+    }
 
     const txRes = await client.query(
       `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, transaction_datetime)
@@ -225,13 +291,14 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
 
     return {
       success: true,
-      transaction_id: txRes.rows[0].id
+      transaction_id: txRes.rows[0].id,
+      msi_advanced: msiAdvanced
     };
   });
 }
 
 /**
- * INV-001: Aporte a Inversión (Con validación de Fondos Insuficientes en cuenta líquida)
+ * INV-001: Aporte a Inversión
  */
 async function executeInvestmentContribution({ source_account_id, investment_id, amount, concept = 'Aportación a inversión', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -245,26 +312,20 @@ async function executeInvestmentContribution({ source_account_id, investment_id,
     const inv = invRes.rows[0];
     if (!src || !inv) throw new Error('Cuenta origen o inversión no encontrada.');
 
-    // Liquid account validation
     if (src.type !== 'credit_card' && parseFloat(src.balance) < numAmount) {
       throw new Error('Fondos insuficientes');
     }
 
-    // Reduce liquid account
     await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, source_account_id]);
 
-    // Increase investment capital & current value
     const newCap = parseFloat(inv.capital_contributed || inv.invested_amount || 0) + numAmount;
     const newVal = parseFloat(inv.current_value || inv.current_documented_value || 0) + numAmount;
 
     await client.query(
-      `UPDATE investments SET 
-        capital_contributed = $1, 
-        invested_amount = $1, 
-        current_value = $2, 
-        current_documented_value = $2, 
-        last_update = $3, 
-        updated_at = CURRENT_TIMESTAMP 
+      `UPDATE investments SET
+        capital_contributed = $1, invested_amount = $1,
+        current_value = $2, current_documented_value = $2,
+        last_update = $3, updated_at = CURRENT_TIMESTAMP
        WHERE id = $4`,
       [newCap, newVal, txDate, investment_id]
     );
@@ -283,7 +344,7 @@ async function executeInvestmentContribution({ source_account_id, investment_id,
 }
 
 /**
- * INV-002 / INV-005: Retiro de Inversión (Mueve dinero hacia cuenta líquida destino; NO es pérdida ni ganancia por sí mismo)
+ * INV-002: Retiro de Inversión
  */
 async function executeInvestmentWithdrawal({ investment_id, destination_account_id, amount, concept = 'Retiro de inversión', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -300,22 +361,17 @@ async function executeInvestmentWithdrawal({ investment_id, destination_account_
     const currentVal = parseFloat(inv.current_value || inv.current_documented_value || 0);
     if (currentVal < numAmount) throw new Error('El monto a retirar supera el valor actual de la inversión.');
 
-    // Reduce investment value & increase withdrawals_total
     const newVal = currentVal - numAmount;
     const newWithdrawals = parseFloat(inv.withdrawals_total || 0) + numAmount;
 
     await client.query(
-      `UPDATE investments SET 
-        current_value = $1, 
-        current_documented_value = $1, 
-        withdrawals_total = $2, 
-        last_update = $3, 
-        updated_at = CURRENT_TIMESTAMP 
+      `UPDATE investments SET
+        current_value = $1, current_documented_value = $1,
+        withdrawals_total = $2, last_update = $3, updated_at = CURRENT_TIMESTAMP
        WHERE id = $4`,
       [newVal, newWithdrawals, txDate, investment_id]
     );
 
-    // Increase destination liquid account
     await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [numAmount, destination_account_id]);
 
     const txRes = await client.query(
@@ -334,7 +390,7 @@ async function executeInvestmentWithdrawal({ investment_id, destination_account_
 }
 
 /**
- * INV-003 / INV-004 / INV-006: Valuación de Inversión (Ajusta valor de la inversión; genera ganancia/pérdida sin tocar liquidez)
+ * INV-003: Valuación de Inversión (ajuste de mercado, sin movimiento de liquidez)
  */
 async function executeInvestmentValuation({ investment_id, new_current_value, concept = 'Revaluación de mercado', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -350,11 +406,9 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
     const variance = newVal - oldVal;
 
     await client.query(
-      `UPDATE investments SET 
-        current_value = $1, 
-        current_documented_value = $1, 
-        last_update = $2, 
-        updated_at = CURRENT_TIMESTAMP 
+      `UPDATE investments SET
+        current_value = $1, current_documented_value = $1,
+        last_update = $2, updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
       [newVal, txDate, investment_id]
     );
@@ -377,45 +431,28 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
 }
 
 /**
- * Queries transactions with dynamic filters
+ * Queries transactions with dynamic filters (PostgreSQL native $N params)
  */
 async function getTransactions(filters = {}) {
-  const { dbAll } = require('../database');
   const { type, category, account_id, concept, start_date, end_date } = filters;
   let sql = 'SELECT t.*, a.name as account_name FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE 1=1';
   const params = [];
+  let idx = 1;
 
-  if (type && type !== 'all') {
-    sql += ' AND t.type = ?';
-    params.push(type);
-  }
-  if (category) {
-    sql += ' AND t.category = ?';
-    params.push(category);
-  }
-  if (account_id) {
-    sql += ' AND t.account_id = ?';
-    params.push(account_id);
-  }
-  if (concept) {
-    sql += ' AND t.concept LIKE ?';
-    params.push(`%${concept}%`);
-  }
-  if (start_date) {
-    sql += ' AND t.date >= ?';
-    params.push(start_date);
-  }
-  if (end_date) {
-    sql += ' AND t.date <= ?';
-    params.push(end_date);
-  }
+  if (type && type !== 'all') { sql += ` AND t.type = $${idx++}`; params.push(type); }
+  if (category) { sql += ` AND t.category = $${idx++}`; params.push(category); }
+  if (account_id) { sql += ` AND t.account_id = $${idx++}`; params.push(account_id); }
+  if (concept) { sql += ` AND t.concept ILIKE $${idx++}`; params.push(`%${concept}%`); }
+  if (start_date) { sql += ` AND t.date >= $${idx++}`; params.push(start_date); }
+  if (end_date) { sql += ` AND t.date <= $${idx++}`; params.push(end_date); }
 
   sql += ' ORDER BY t.date DESC, t.id DESC';
-  return await dbAll(sql, params);
+  const result = await pool.query(sql, params);
+  return result.rows;
 }
 
 /**
- * Unified transaction router replacing processTransaction
+ * Unified transaction router — single entry point for all financial operations
  */
 async function processGenericTransaction(data) {
   const { type, account_id, destination_account_id, source_account_id, credit_card_id, investment_id, amount, concept, category, is_msi, msi_months, date } = data;
@@ -437,13 +474,12 @@ async function processGenericTransaction(data) {
   } else if (type === 'investment_withdrawal') {
     return await executeInvestmentWithdrawal({ investment_id, destination_account_id: dstId, amount, concept, date });
   } else {
-    // Fallback default expense
     return await executeExpense({ source_account_id: srcId, amount, concept, category, date });
   }
 }
 
 /**
- * Reverts a transaction safely within a PostgreSQL ACID transaction
+ * Reverts a transaction safely with FULL support for all transaction types — ACID guaranteed
  */
 async function deleteTransactionSafely(transactionId) {
   return await withTransaction(async (client) => {
@@ -453,14 +489,126 @@ async function deleteTransactionSafely(transactionId) {
 
     const amount = parseFloat(tx.amount || 0);
 
-    if (tx.type === 'income' && tx.destination_account_id) {
-      await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
-      await client.query('DELETE FROM incomes WHERE account_id = $1 AND amount = $2 AND date = $3', [tx.destination_account_id, amount, tx.date]);
-    } else if (tx.type === 'expense' && tx.source_account_id) {
-      await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
-    } else if (tx.type === 'transfer' && tx.source_account_id && tx.destination_account_id) {
-      await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
-      await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+    if (tx.type === 'income') {
+      if (tx.destination_account_id) {
+        await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+      }
+      // Delete by FK first; fallback for legacy rows without FK
+      const del1 = await client.query('DELETE FROM incomes WHERE source_document_id = $1', [transactionId]);
+      if (del1.rowCount === 0 && tx.destination_account_id) {
+        await client.query(
+          'DELETE FROM incomes WHERE id = (SELECT id FROM incomes WHERE account_id = $1 AND amount = $2 AND date = $3 AND source_document_id IS NULL ORDER BY id DESC LIMIT 1)',
+          [tx.destination_account_id, amount, tx.date]
+        );
+      }
+
+    } else if (tx.type === 'expense') {
+      if (tx.source_account_id) {
+        const accRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [tx.source_account_id]);
+        const acc = accRes.rows[0];
+        if (acc && acc.type === 'credit_card') {
+          const creditLimit = parseFloat(acc.credit_limit || 0);
+          const newBal = Math.max(0, parseFloat(acc.balance || 0) - amount);
+          const newAvail = creditLimit > 0 ? Math.min(creditLimit, creditLimit - newBal) : parseFloat(acc.available_credit || 0) + amount;
+          await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, tx.source_account_id]);
+          await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND account_id = $2", [amount, tx.source_account_id]);
+        } else if (acc) {
+          await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+        }
+      }
+
+    } else if (tx.type === 'transfer') {
+      if (tx.source_account_id) {
+        await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+      }
+      if (tx.destination_account_id) {
+        await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+      }
+
+    } else if (tx.type === 'card_purchase') {
+      const cardId = tx.source_account_id || tx.account_id;
+      if (cardId) {
+        const cardRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [cardId]);
+        const card = cardRes.rows[0];
+        if (card) {
+          const creditLimit = parseFloat(card.credit_limit || 0);
+          const newBal = Math.max(0, parseFloat(card.balance || 0) - amount);
+          const newAvail = creditLimit > 0 ? Math.min(creditLimit, creditLimit - newBal) : parseFloat(card.available_credit || 0) + amount;
+          await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, cardId]);
+          await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND account_id = $2", [amount, cardId]);
+        }
+      }
+      // Remove associated MSI plan if this was an MSI purchase
+      await client.query('DELETE FROM installment_plans WHERE transaction_id = $1', [transactionId]);
+
+    } else if (tx.type === 'card_payment') {
+      // Restore source liquid account
+      if (tx.source_account_id) {
+        await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+      }
+      // Restore card balance & reduce available credit
+      const cardId = tx.destination_account_id;
+      if (cardId) {
+        const cardRes = await client.query('SELECT * FROM accounts WHERE id = $1 FOR UPDATE', [cardId]);
+        const card = cardRes.rows[0];
+        if (card) {
+          const creditLimit = parseFloat(card.credit_limit || 0);
+          const newBal = parseFloat(card.balance || 0) + amount;
+          const newAvail = creditLimit > 0 ? Math.max(0, creditLimit - newBal) : Math.max(0, parseFloat(card.available_credit || 0) - amount);
+          await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, cardId]);
+          await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND account_id = $2", [amount, cardId]);
+        }
+      }
+
+    } else if (tx.type === 'investment_contribution' || tx.type === 'investment_deposit') {
+      if (tx.source_account_id) {
+        await client.query('UPDATE accounts SET balance = balance + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.source_account_id]);
+      }
+      if (tx.destination_investment_id) {
+        await client.query(
+          `UPDATE investments SET
+            capital_contributed = GREATEST(0, capital_contributed - $1),
+            invested_amount = GREATEST(0, invested_amount - $1),
+            current_value = GREATEST(0, current_value - $1),
+            current_documented_value = GREATEST(0, current_documented_value - $1),
+            updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [amount, tx.destination_investment_id]
+        );
+      }
+
+    } else if (tx.type === 'investment_withdrawal') {
+      if (tx.destination_account_id) {
+        await client.query('UPDATE accounts SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [amount, tx.destination_account_id]);
+      }
+      if (tx.source_investment_id) {
+        await client.query(
+          `UPDATE investments SET
+            current_value = current_value + $1,
+            current_documented_value = current_documented_value + $1,
+            withdrawals_total = GREATEST(0, withdrawals_total - $1),
+            updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [amount, tx.source_investment_id]
+        );
+      }
+
+    } else if (tx.type === 'investment_valuation' || tx.type === 'valuation') {
+      if (tx.source_investment_id && tx.notes) {
+        try {
+          const noteData = typeof tx.notes === 'string' ? JSON.parse(tx.notes) : tx.notes;
+          if (noteData && noteData.old_value !== undefined) {
+            await client.query(
+              `UPDATE investments SET
+                current_value = $1, current_documented_value = $1, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [parseFloat(noteData.old_value), tx.source_investment_id]
+            );
+          }
+        } catch (_) {
+          // Notes not parseable — valuation revert skipped safely
+        }
+      }
     }
 
     await client.query('DELETE FROM transactions WHERE id = $1', [transactionId]);
@@ -469,7 +617,7 @@ async function deleteTransactionSafely(transactionId) {
 }
 
 /**
- * Deletes an account safely with strict child-table cascade order in an ACID transaction
+ * Deletes an account safely with strict child-table cascade order — ACID
  */
 async function deleteAccountSafely(accountId) {
   return await withTransaction(async (client) => {
@@ -477,9 +625,8 @@ async function deleteAccountSafely(accountId) {
     const acc = accRes.rows[0];
     if (!acc) throw new Error('Cuenta no encontrada.');
 
-    // Delete child records first in strict FK order
     await client.query('DELETE FROM installment_plans WHERE account_id = $1 OR credit_card_id = $1', [accountId]);
-    await client.query('DELETE FROM debts WHERE account_id = $1 OR (type = \'credit_card\' AND id = $1)', [accountId]);
+    await client.query("DELETE FROM debts WHERE account_id = $1 OR (type = 'credit_card' AND id = $1)", [accountId]);
     await client.query('DELETE FROM incomes WHERE account_id = $1', [accountId]);
     await client.query('DELETE FROM transactions WHERE account_id = $1 OR source_account_id = $1 OR destination_account_id = $1', [accountId]);
     await client.query('DELETE FROM accounts WHERE id = $1', [accountId]);
@@ -489,7 +636,7 @@ async function deleteAccountSafely(accountId) {
 }
 
 /**
- * Deletes a credit card debt / loan safely along with its associated account and installment plans
+ * Deletes a credit card debt / loan safely — ACID
  */
 async function deleteDebtSafely(debtId) {
   return await withTransaction(async (client) => {
@@ -499,21 +646,16 @@ async function deleteDebtSafely(debtId) {
 
     const targetAccId = debt.account_id;
 
-    // Delete associated installment plans and debt payments
     await client.query('DELETE FROM installment_plans WHERE debt_id = $1 OR (account_id IS NOT NULL AND account_id = $2)', [debtId, targetAccId]);
     await client.query('DELETE FROM debt_payments WHERE debt_id = $1', [debtId]);
-
-    // Delete debt record
     await client.query('DELETE FROM debts WHERE id = $1', [debtId]);
 
-    // If there is an associated credit card account, safely delete dependent records first then the account
-    const accIdToDelete = targetAccId || debtId;
-    if (accIdToDelete) {
-      await client.query('DELETE FROM installment_plans WHERE account_id = $1 OR credit_card_id = $1', [accIdToDelete]);
-      await client.query('DELETE FROM debts WHERE account_id = $1', [accIdToDelete]);
-      await client.query('DELETE FROM incomes WHERE account_id = $1', [accIdToDelete]);
-      await client.query('DELETE FROM transactions WHERE account_id = $1 OR source_account_id = $1 OR destination_account_id = $1', [accIdToDelete]);
-      await client.query("DELETE FROM accounts WHERE id = $1 AND type = 'credit_card'", [accIdToDelete]);
+    if (targetAccId) {
+      await client.query('DELETE FROM installment_plans WHERE account_id = $1 OR credit_card_id = $1', [targetAccId]);
+      await client.query('DELETE FROM debts WHERE account_id = $1', [targetAccId]);
+      await client.query('DELETE FROM incomes WHERE account_id = $1', [targetAccId]);
+      await client.query('DELETE FROM transactions WHERE account_id = $1 OR source_account_id = $1 OR destination_account_id = $1', [targetAccId]);
+      await client.query("DELETE FROM accounts WHERE id = $1 AND type = 'credit_card'", [targetAccId]);
     }
 
     return { success: true, message: 'Deuda y registros asociados eliminados de forma segura.' };

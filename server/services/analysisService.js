@@ -141,45 +141,67 @@ async function getChartsData() {
     ORDER BY month ASC
   `);
 
+  // Corrected balanceTimeline: uses actual current liquid balance as anchor,
+  // then reconstructs history by reverse-applying transaction deltas.
+  // This mirrors the logic in financialMetricsService.getTimelines() and is consistent
+  // with the dashboard values.
+  const accounts = await dbAll("SELECT * FROM accounts WHERE (active != 0 OR active IS NULL) AND type != 'credit_card' AND type != 'loan'");
+  const currentLiquid = accounts.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
+
   const dailyTransactions = await dbAll(`
     SELECT 
       date,
       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
-      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expenses,
+      SUM(CASE WHEN type = 'card_payment' THEN amount ELSE 0 END) as card_payments,
+      SUM(CASE WHEN type IN ('investment_contribution','investment_deposit') THEN amount ELSE 0 END) as inv_out,
+      SUM(CASE WHEN type = 'investment_withdrawal' THEN amount ELSE 0 END) as inv_in
     FROM transactions
-    WHERE type IN ('income','expense')
+    WHERE type IN ('income','expense','card_payment','investment_contribution','investment_deposit','investment_withdrawal')
       AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')
     GROUP BY date
     ORDER BY date ASC
   `);
 
-  let cumulativeBalance = 0;
-  const balanceTimeline = dailyTransactions.map(day => {
-    cumulativeBalance += (parseFloat(day.income) || 0) - (parseFloat(day.expenses) || 0);
-    return {
-      date: day.date,
-      balance: parseFloat(cumulativeBalance.toFixed(2)),
-      income: parseFloat(day.income) || 0,
-      expenses: parseFloat(day.expenses) || 0
-    };
+  // Reverse-reconstruct liquid balance per day
+  let runningBalance = currentLiquid;
+  const reversedDays = [...dailyTransactions].reverse();
+  const dayBalanceMap = new Map();
+
+  reversedDays.forEach(day => {
+    dayBalanceMap.set(day.date, runningBalance);
+    // Roll back this day's transactions to get balance before this day
+    const inc     = parseFloat(day.income || 0);
+    const exp     = parseFloat(day.expenses || 0);
+    const cardPay = parseFloat(day.card_payments || 0);
+    const invOut  = parseFloat(day.inv_out || 0);
+    const invIn   = parseFloat(day.inv_in || 0);
+    runningBalance = runningBalance - inc + exp + cardPay + invOut - invIn;
   });
 
+  const balanceTimeline = dailyTransactions.map(day => ({
+    date:     day.date,
+    balance:  parseFloat((dayBalanceMap.get(day.date) || 0).toFixed(2)),
+    income:   parseFloat(day.income || 0),
+    expenses: parseFloat(day.expenses || 0)
+  }));
+
   const investmentTimeline = investments.map(inv => ({
-    name: inv.name,
-    invested: parseFloat(inv.capital_contributed || inv.invested_amount || 0),
-    current: parseFloat(inv.current_value || inv.current_documented_value || 0),
-    gainLoss: (parseFloat(inv.current_value || inv.current_documented_value || 0)) - (parseFloat(inv.capital_contributed || inv.invested_amount || 0)),
+    name:      inv.name,
+    invested:  parseFloat(inv.capital_contributed || inv.invested_amount || 0),
+    current:   parseFloat(inv.current_value || inv.current_documented_value || 0),
+    gainLoss:  (parseFloat(inv.current_value || inv.current_documented_value || 0)) - (parseFloat(inv.capital_contributed || inv.invested_amount || 0)),
     returnPct: inv.invested_amount > 0
       ? parseFloat((((inv.current_documented_value - inv.invested_amount) / inv.invested_amount) * 100).toFixed(2))
       : 0,
     lastUpdate: inv.last_update || 'Sin actualizar',
-    riskLevel: inv.risk_level
+    riskLevel:  inv.risk_level
   }));
 
-  const totalInvested = investmentTimeline.reduce((s, i) => s + i.invested, 0);
+  const totalInvested     = investmentTimeline.reduce((s, i) => s + i.invested, 0);
   const totalCurrentValue = investmentTimeline.reduce((s, i) => s + i.current, 0);
-  const totalReturn = totalCurrentValue - totalInvested;
-  const totalReturnPct = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : 0;
+  const totalReturn       = totalCurrentValue - totalInvested;
+  const totalReturnPct    = totalInvested > 0 ? ((totalReturn / totalInvested) * 100).toFixed(2) : 0;
 
   return {
     investmentTimeline,

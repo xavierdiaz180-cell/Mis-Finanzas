@@ -1,6 +1,8 @@
 const { dbAll, dbGet, dbRun } = require('../database');
 const { enrichAccountsWithMSIData } = require('../services/creditCardService');
-const { deleteAccountSafely } = require('../services/transactionService');
+const { deleteAccountSafely, withTransaction } = require('../services/transactionService');
+const { pool } = require('../database');
+
 
 /**
  * Controller for liquid & liability accounts management delegating to domain services
@@ -21,52 +23,64 @@ async function createAccount(req, res) {
     if (!name || !type) {
       return res.status(400).json({ error: 'Nombre y tipo de cuenta son requeridos.' });
     }
-    const initialAvailable = type === 'credit_card' ? parseFloat(credit_limit) - parseFloat(balance) : parseFloat(balance);
-    
-    const result = await dbRun(
-      `INSERT INTO accounts (name, type, balance, available_credit, credit_limit, interest_rate, due_date, cutoff_date, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [name, type, parseFloat(balance), initialAvailable, parseFloat(credit_limit), parseFloat(interest_rate), due_date, cutoff_date]
-    );
 
-    let debtId = null;
-    if (type === 'credit_card') {
-      const debtAmount = parseFloat(balance);
-      const minPayment = parseFloat(req.body.minimum_payment || debtAmount * 0.05);
-      const debtResult = await dbRun(
-        `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date, account_id)
-         VALUES (?, 'credit_card', ?, ?, ?, ?, ?, ?)`,
-        [name, debtAmount, debtAmount, minPayment, parseFloat(interest_rate), due_date, result.lastID]
+    const result = await withTransaction(async (client) => {
+      const initialBalance = parseFloat(balance);
+      const initialLimit   = parseFloat(credit_limit);
+      const initialAvail   = type === 'credit_card'
+        ? Math.max(0, initialLimit - initialBalance)
+        : initialBalance;
+
+      const accRes = await client.query(
+        `INSERT INTO accounts (name, type, balance, available_credit, credit_limit, interest_rate, due_date, cutoff_date, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1) RETURNING id`,
+        [name, type, initialBalance, initialAvail, initialLimit, parseFloat(interest_rate), due_date || null, cutoff_date || null]
       );
-      debtId = debtResult.lastID;
-    }
+      const accountId = accRes.rows[0].id;
 
-    if (req.body.msi_plans && Array.isArray(req.body.msi_plans)) {
-      for (const msi of req.body.msi_plans) {
-        if (msi.concept && parseFloat(msi.monthly_amount) > 0) {
-          const totalInst = parseInt(msi.installments_total || 12, 10);
-          const paidInst = parseInt(msi.installments_paid || 0, 10);
-          const remInst = Math.max(0, totalInst - paidInst);
-          const monthly = parseFloat(msi.monthly_amount);
-          const totalAmt = parseFloat(msi.total_amount || (monthly * totalInst));
-          const remBal = monthly * remInst;
+      let debtId = null;
+      if (type === 'credit_card') {
+        const minPayment = parseFloat(req.body.minimum_payment || initialBalance * 0.05);
+        const debtRes = await client.query(
+          `INSERT INTO debts (name, type, original_amount, current_balance, payment_amount, interest_rate, due_date, cutoff_date, account_id)
+           VALUES ($1, 'credit_card', $2, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [name, initialBalance, minPayment, parseFloat(interest_rate), due_date || null, cutoff_date || null, accountId]
+        );
+        debtId = debtRes.rows[0].id;
+      }
 
-          await dbRun(
-            `INSERT INTO installment_plans (account_id, debt_id, credit_card_id, concept, total_amount, monthly_amount, installments_total, installments_paid, remaining_balance)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [result.lastID, debtId, result.lastID, msi.concept, totalAmt, monthly, totalInst, paidInst, remBal]
-          );
+      // Create MSI plans if provided
+      const msiPlans = req.body.msi_plans;
+      if (msiPlans && Array.isArray(msiPlans)) {
+        for (const msi of msiPlans) {
+          if (msi.concept && parseFloat(msi.monthly_amount) > 0) {
+            const totalInst = parseInt(msi.installments_total || 12, 10);
+            const paidInst  = parseInt(msi.installments_paid || 0, 10);
+            const remInst   = Math.max(0, totalInst - paidInst);
+            const monthly   = parseFloat(msi.monthly_amount);
+            const totalAmt  = parseFloat(msi.total_amount || (monthly * totalInst));
+            const remBal    = monthly * remInst;
+
+            await client.query(
+              `INSERT INTO installment_plans (account_id, debt_id, credit_card_id, concept, total_amount, monthly_amount, installments_total, installments_paid, installments_remaining, remaining_balance)
+               VALUES ($1, $2, $1, $3, $4, $5, $6, $7, $8, $9)`,
+              [accountId, debtId, msi.concept, totalAmt, monthly, totalInst, paidInst, remInst, remBal]
+            );
+          }
         }
       }
-    }
 
-    return res.json({ success: true, account_id: result.lastID, debt_id: debtId, message: 'Cuenta agregada exitosamente.' });
+      return { account_id: accountId, debt_id: debtId };
+    });
+
+    return res.json({ success: true, account_id: result.account_id, debt_id: result.debt_id, message: 'Cuenta agregada exitosamente.' });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 }
 
 async function getAccountById(req, res) {
+
   try {
     const accountId = req.params.id;
     const account = await dbGet('SELECT * FROM accounts WHERE id = ?', [accountId]);
