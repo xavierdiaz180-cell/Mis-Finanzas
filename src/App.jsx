@@ -12,12 +12,14 @@ import AjustesView from './views/AjustesView';
 import GraficasView from './views/GraficasView';
 import LoginPage from './components/LoginPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DateRangeProvider, useDateRange } from './context/DateRangeContext';
 import { Database, Server, ShieldCheck } from 'lucide-react';
 import { API_BASE } from './config';
 import './styles/theme.css';
 
 function MainApp() {
   const { isAuthenticated, loading } = useAuth();
+  const { queryParams, startDate, endDate, label } = useDateRange();
   const [activeTab, setActiveTab] = useState('inicio');
   const [apiStatus, setApiStatus] = useState('loading');
   const [summaryData, setSummaryData] = useState(null);
@@ -34,7 +36,7 @@ function MainApp() {
   };
 
   const fetchSummary = () => {
-    fetch(`${API_BASE}/api/summary`)
+    fetch(`${API_BASE}/api/summary?${queryParams}`)
       .then(res => res.json())
       .then(data => setSummaryData(data))
       .catch(err => console.error('Error fetching summary:', err));
@@ -55,7 +57,7 @@ function MainApp() {
       .catch(() => setApiStatus('error'));
 
     fetchSummary();
-  }, [isAuthenticated, activeTab]);
+  }, [isAuthenticated, activeTab, queryParams]);
 
   if (loading) {
     return (
@@ -157,7 +159,9 @@ function MainApp() {
 export default function App() {
   return (
     <AuthProvider>
-      <MainApp />
+      <DateRangeProvider>
+        <MainApp />
+      </DateRangeProvider>
     </AuthProvider>
   );
 }

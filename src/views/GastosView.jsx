@@ -4,6 +4,7 @@ import DocumentScannerModal from '../components/DocumentScannerModal';
 import ExportExcelModal from '../components/ExportExcelModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
+import { useDateRange } from '../context/DateRangeContext';
 
 export default function GastosView({ onRefresh, hideValues = false }) {
   const [expenses, setExpenses] = useState([]);
@@ -76,13 +77,15 @@ export default function GastosView({ onRefresh, hideValues = false }) {
     }
   };
 
+  const { startDate, endDate, queryParams } = useDateRange();
+
   const loadData = () => {
     const params = new URLSearchParams({ type: 'expense' });
     if (filterConcept) params.append('concept', filterConcept);
     if (filterCategory) params.append('category', filterCategory);
     if (filterAccount) params.append('account_id', filterAccount);
-    if (filterStartDate) params.append('start_date', filterStartDate);
-    if (filterEndDate) params.append('end_date', filterEndDate);
+    params.append('start_date', filterStartDate || startDate);
+    params.append('end_date', filterEndDate || endDate);
 
     fetch(`${API_BASE}/api/transactions?${params.toString()}`)
       .then(res => res.json())
@@ -115,7 +118,7 @@ export default function GastosView({ onRefresh, hideValues = false }) {
 
   useEffect(() => {
     loadData();
-  }, [filterConcept, filterCategory, filterAccount, filterStartDate, filterEndDate]);
+  }, [filterConcept, filterCategory, filterAccount, filterStartDate, filterEndDate, startDate, endDate]);
 
   // Calls backend Gemini AI API /api/voice/process
   const handleSimulateVoice = () => {

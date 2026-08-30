@@ -122,22 +122,26 @@ async function getFullAnalysisData() {
  * Calculates complete chart datasets for the Financial Analysis Center (GraficasView)
  * Provides authoritative KPIs, Timelines, Cash Flow, Category Breakdown, Debts, MSI, and Real Insights
  */
-async function getChartsData() {
+async function getChartsData(filters = {}) {
+  const { startDate, endDate, start_date, end_date } = filters;
+  const filterStart = startDate || start_date;
+  const filterEnd = endDate || end_date;
+
   const today = new Date();
   const currentMonthStr = today.toISOString().substring(0, 7);
   const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const prevMonthStr = prevMonthDate.toISOString().substring(0, 7);
 
-  // 1. Authoritative Summary & Timelines from financialMetricsService
-  const summary = await financialMetricsService.getSummaryMetrics();
-  const timelines = await financialMetricsService.getTimelines();
+  // 1. Authoritative Summary & Timelines from financialMetricsService (passing date filters)
+  const summary = await financialMetricsService.getSummaryMetrics({ startDate: filterStart, endDate: filterEnd });
+  const timelines = await financialMetricsService.getTimelines({ startDate: filterStart, endDate: filterEnd });
   const rawInvestments = await dbAll('SELECT * FROM investments ORDER BY id ASC');
   const accounts = await dbAll("SELECT * FROM accounts WHERE (active != 0 OR active IS NULL)");
   const debts = await dbAll('SELECT * FROM debts');
   const msiPlans = await dbAll("SELECT * FROM installment_plans WHERE status = 'active' OR remaining_balance > 0 ORDER BY purchase_date ASC, id ASC");
 
-  // 2. Monthly Cash Flows (Last 12 Months)
-  const monthlyFlowRaw = await dbAll(`
+  // 2. Monthly Cash Flows
+  let flowSql = `
     SELECT 
       LEFT(date, 7) as month,
       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
@@ -145,10 +149,17 @@ async function getChartsData() {
       SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net
     FROM transactions
     WHERE type IN ('income','expense')
-      AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
-    GROUP BY LEFT(date, 7)
-    ORDER BY month ASC
-  `);
+  `;
+  const flowParams = [];
+  if (filterStart && filterEnd) {
+    flowSql += ` AND date >= ? AND date <= ?`;
+    flowParams.push(filterStart, filterEnd);
+  } else {
+    flowSql += ` AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')`;
+  }
+  flowSql += ` GROUP BY LEFT(date, 7) ORDER BY month ASC`;
+
+  const monthlyFlowRaw = await dbAll(flowSql, flowParams);
 
   const monthlyFlow = monthlyFlowRaw.map(m => {
     const d = new Date(m.month + '-02');
@@ -177,24 +188,30 @@ async function getChartsData() {
   const incomeMomPct = prevMonthData.income > 0 ? (((thisMonthData.income - prevMonthData.income) / prevMonthData.income) * 100) : 0;
   const expenseMomPct = prevMonthData.expenses > 0 ? (((thisMonthData.expenses - prevMonthData.expenses) / prevMonthData.expenses) * 100) : 0;
 
-  // 3. Expenses by Category (Current Year / 12 Months & Current Month)
-  const categoryRows12m = await dbAll(`
+  // 3. Expenses by Category for the selected period
+  let catSql = `
     SELECT category, SUM(amount) as total, COUNT(*) as count
     FROM transactions
     WHERE type = 'expense'
-      AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')
-    GROUP BY category
-    ORDER BY total DESC
-  `);
+  `;
+  const catParams = [];
+  if (filterStart && filterEnd) {
+    catSql += ` AND date >= ? AND date <= ?`;
+    catParams.push(filterStart, filterEnd);
+  } else {
+    catSql += ` AND date >= TO_CHAR(CURRENT_DATE - INTERVAL '12 months', 'YYYY-MM-DD')`;
+  }
+  catSql += ` GROUP BY category ORDER BY total DESC`;
 
-  const totalExpense12m = categoryRows12m.reduce((sum, r) => sum + (parseFloat(r.total) || 0), 0);
+  const categoryRows = await dbAll(catSql, catParams);
+  const totalExpense = categoryRows.reduce((sum, r) => sum + (parseFloat(r.total) || 0), 0);
 
   // Group Top 5 categories + "Otros"
   let top5Categories = [];
   let otherTotal = 0;
   let otherCount = 0;
 
-  categoryRows12m.forEach((cat, idx) => {
+  categoryRows.forEach((cat, idx) => {
     const tot = parseFloat(cat.total) || 0;
     const cnt = parseInt(cat.count, 10) || 0;
     if (idx < 5) {
@@ -202,7 +219,7 @@ async function getChartsData() {
         category: cat.category || 'Sin categoría',
         total: tot,
         count: cnt,
-        percentage: totalExpense12m > 0 ? parseFloat(((tot / totalExpense12m) * 100).toFixed(1)) : 0
+        percentage: totalExpense > 0 ? parseFloat(((tot / totalExpense) * 100).toFixed(1)) : 0
       });
     } else {
       otherTotal += tot;
@@ -215,7 +232,7 @@ async function getChartsData() {
       category: 'Otros',
       total: otherTotal,
       count: otherCount,
-      percentage: totalExpense12m > 0 ? parseFloat(((otherTotal / totalExpense12m) * 100).toFixed(1)) : 0
+      percentage: totalExpense > 0 ? parseFloat(((otherTotal / totalExpense) * 100).toFixed(1)) : 0
     });
   }
 
@@ -243,11 +260,11 @@ async function getChartsData() {
   let totalMsiInstallmentsRemaining = 0;
 
   const msiList = msiPlans.map(p => {
-    const remBal = parseFloat(p.remaining_balance || p.remaining_principal || 0);
-    const monthly = parseFloat(p.monthly_amount || 0);
     const totalInst = parseInt(p.installments_total || 0, 10);
     const paidInst = parseInt(p.installments_paid || 0, 10);
     const remInst = parseInt(p.installments_remaining || Math.max(0, totalInst - paidInst), 10);
+    const monthly = parseFloat(p.monthly_amount || 0);
+    const remBal = parseFloat((monthly * remInst).toFixed(2));
 
     totalMsiRemaining += remBal;
     totalMsiMonthlyCommitment += monthly;
@@ -284,7 +301,6 @@ async function getChartsData() {
       balance: Math.max(0, parseFloat(runningMsiBal.toFixed(2)))
     });
 
-    // Subtract monthly commitments of plans that still have remaining installments at month m+1
     const activeMonthlyInMonth = msiList
       .filter(p => p.installments_remaining > m)
       .reduce((sum, p) => sum + p.monthly_amount, 0);
@@ -313,12 +329,15 @@ async function getChartsData() {
     loans: parseFloat(p.loan_debt) || 0
   }));
 
-  // Build sorted daily timeline combining all 3 traces
-  const allTimelineDates = Array.from(new Set([
+  let allTimelineDates = Array.from(new Set([
     ...Array.from(netWorthMap.keys()),
     ...Array.from(liquidMap.keys()),
     ...Array.from(debtMap.keys())
   ])).sort();
+
+  if (filterStart && filterEnd) {
+    allTimelineDates = allTimelineDates.filter(d => d >= filterStart && d <= filterEnd);
+  }
 
   const combinedTimeline = allTimelineDates.map(dateStr => {
     const d = new Date(dateStr + 'T00:00:00');
@@ -328,7 +347,7 @@ async function getChartsData() {
       date: dateStr,
       label,
       net_worth: netWorthMap.get(dateStr) || 0,
-      liquid: summary.liquid_money, // fallback
+      liquid: summary.liquid_money,
       available: liquidMap.get(dateStr) || 0,
       debt: debtObj.total,
       credit_card_debt: debtObj.cards,
@@ -336,10 +355,9 @@ async function getChartsData() {
     };
   });
 
-  // 8. Factual Automatic Insights (Hallazgos Reales)
+  // 8. Factual Automatic Insights
   const insights = [];
 
-  // Insight 1: Net Worth Status
   if (summary.net_worth >= 0) {
     insights.push({
       type: 'positive',
@@ -354,33 +372,30 @@ async function getChartsData() {
     });
   }
 
-  // Insight 2: Monthly Flow
-  if (thisMonthData.net > 0) {
-    const savingsRate = thisMonthData.income > 0 ? ((thisMonthData.net / thisMonthData.income) * 100).toFixed(1) : 0;
+  const periodNet = summary.period?.net_flow !== undefined ? summary.period.net_flow : thisMonthData.net;
+  if (periodNet > 0) {
     insights.push({
       type: 'positive',
-      title: 'Flujo Positivo Este Mes',
-      text: `Estás generando dinero este mes con un superávit de $${thisMonthData.net.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${savingsRate}% tasa de ahorro).`
+      title: 'Flujo Positivo en el Periodo',
+      text: `Estás generando dinero en el periodo seleccionado con un superávit neto de $${periodNet.toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
     });
-  } else if (thisMonthData.net < 0) {
+  } else if (periodNet < 0) {
     insights.push({
       type: 'danger',
-      title: 'Déficit en el Mes',
-      text: `Tus gastos ($${thisMonthData.expenses.toLocaleString('es-MX', { minimumFractionDigits: 2 })}) superan a tus ingresos ($${thisMonthData.income.toLocaleString('es-MX', { minimumFractionDigits: 2 })}) por $${Math.abs(thisMonthData.net).toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
+      title: 'Déficit en el Periodo',
+      text: `Tus gastos superan a tus ingresos en el periodo seleccionado por $${Math.abs(periodNet).toLocaleString('es-MX', { minimumFractionDigits: 2 })}.`
     });
   }
 
-  // Insight 3: Top Category
   if (top5Categories.length > 0 && top5Categories[0].percentage > 0) {
     const topCat = top5Categories[0];
     insights.push({
       type: 'info',
       title: `Gasto Principal: ${topCat.category}`,
-      text: `${topCat.category} representa el ${topCat.percentage}% de tus egresos totales registrados ($${topCat.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}).`
+      text: `${topCat.category} representa el ${topCat.percentage}% de tus egresos en el periodo ($${topCat.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}).`
     });
   }
 
-  // Insight 4: MSI Impact
   if (totalMsiRemaining > 0 && summary.total_debt > 0) {
     const msiDebtPct = ((totalMsiRemaining / summary.total_debt) * 100).toFixed(1);
     insights.push({
@@ -390,32 +405,8 @@ async function getChartsData() {
     });
   }
 
-  // Fallback if not enough data
-  if (monthlyFlow.length < 2) {
-    insights.push({
-      type: 'neutral',
-      title: 'Historial en construcción',
-      text: 'Aún no hay suficiente historial mensual para calcular comparaciones de tendencia.'
-    });
-  }
-
   return {
-    summary: {
-      net_worth: summary.net_worth,
-      liquid_money: summary.liquid_money,
-      spendable_money: summary.spendable_money,
-      available_money: summary.available_money,
-      total_debt: summary.total_debt,
-      credit_card_debt: summary.credit_card_debt,
-      loan_debt: summary.loan_debt,
-      investment_value: summary.investment_value,
-      total_assets: summary.total_assets,
-      this_month_net: thisMonthData.net,
-      this_month_income: thisMonthData.income,
-      this_month_expenses: thisMonthData.expenses,
-      income_mom_pct: parseFloat(incomeMomPct.toFixed(1)),
-      expense_mom_pct: parseFloat(expenseMomPct.toFixed(1))
-    },
+    summary,
     patrimonioTimeline: combinedTimeline,
     monthlyFlow,
     monthlyFlowSummary: {
@@ -430,7 +421,7 @@ async function getChartsData() {
       expenseMomPct: parseFloat(expenseMomPct.toFixed(1))
     },
     expensesByCategory: top5Categories,
-    allExpensesByCategory: categoryRows12m,
+    allExpensesByCategory: categoryRows,
     debts: {
       total_debt: summary.total_debt,
       credit_card_debt: summary.credit_card_debt,
@@ -456,8 +447,3 @@ async function getChartsData() {
     insights
   };
 }
-
-module.exports = {
-  getFullAnalysisData,
-  getChartsData
-};

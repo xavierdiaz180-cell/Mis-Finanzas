@@ -4,24 +4,31 @@ const { enrichAccountsWithMSIData } = require('./creditCardService');
 const budgetingService = require('./budgetingService');
 
 /**
- * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2 (Phase 3.3)
+ * Single authoritative service for all financial metrics & contracts in Mis Finanzas V2
+ * Supports Global Date Range filtering while strictly preserving real current balances
  */
 
-async function getSummaryMetrics() {
+async function getSummaryMetrics(dateFilters = {}) {
+  const today = new Date();
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+  const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+  const startDate = dateFilters.startDate || dateFilters.start_date || currentMonthStart;
+  const endDate = dateFilters.endDate || dateFilters.end_date || currentMonthEnd;
+
   const accounts = await dbAll("SELECT * FROM accounts WHERE active != 0 OR active IS NULL");
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
-  // 1. LIQUID MONEY (Nómina, Débito, Efectivo, Ahorro - excludes credit cards and loans)
+  // 1. LIQUID MONEY TODAY (Real present state)
   const liquidMoney = enrichedAccounts
     .filter(a => a.type !== 'credit_card' && a.type !== 'loan')
     .reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
 
-  // 2. INVESTMENT VALUE (All documented investments)
+  // 2. INVESTMENT VALUE TODAY
   const investments = await dbAll('SELECT * FROM investments');
   const investmentValue = investments.reduce((sum, i) => sum + (parseFloat(i.current_value || i.current_documented_value) || 0), 0);
 
-  // 3. REALIZABLE INVESTMENTS (Strict check: is_liquid === true OR liquidity_status === 'LIQUIDA')
-  // CRITICAL RULE: NULL / undefined is strictly treated as NOT liquid (NO_LIQUIDA)
+  // 3. REALIZABLE INVESTMENTS TODAY
   const realizableInvestments = investments
     .filter(i => {
       if (i.is_liquid === true || i.is_liquid === 1 || i.is_liquid === 'true') return true;
@@ -30,13 +37,11 @@ async function getSummaryMetrics() {
     })
     .reduce((sum, i) => sum + (parseFloat(i.current_value || i.current_documented_value) || 0), 0);
 
-  // 4. SPENDABLE MONEY (Liquid Money + Realizable Investments)
+  // 4. SPENDABLE & AVAILABLE MONEY TODAY
   const spendableMoney = liquidMoney + realizableInvestments;
-
-  // 5. AVAILABLE MONEY (Liquid Money + Investment Value)
   const availableMoney = liquidMoney + investmentValue;
 
-  // 6. TOTAL DEBT & CREDIT CARD DEBT (from debts table — source of truth for all cards and loans)
+  // 5. TOTAL DEBT & CREDIT CARD DEBT TODAY
   const debts = await dbAll('SELECT * FROM debts');
   const totalDebt = debts.reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
   const creditCardDebt = debts
@@ -46,11 +51,64 @@ async function getSummaryMetrics() {
     .filter(d => d.type !== 'credit_card')
     .reduce((sum, d) => sum + (parseFloat(d.current_balance) || 0), 0);
 
-  // 7. TOTAL ASSETS & NET WORTH
+  // 6. TOTAL ASSETS & NET WORTH TODAY
   const totalAssets = liquidMoney + investmentValue;
   const netWorth = totalAssets - totalDebt;
 
-  // 8. DAILY BUDGET STATUS
+  // 7. PERIOD ACTIVITY (Between startDate and endDate)
+  const periodTxs = await dbAll(
+    `SELECT type, amount, date FROM transactions 
+     WHERE date >= ? AND date <= ? AND (status = 'confirmed' OR status IS NULL)`,
+    [startDate, endDate]
+  );
+
+  let periodIncome = 0;
+  let periodExpenses = 0;
+  let periodTransfers = 0;
+  let periodCardPayments = 0;
+  let periodInvContributions = 0;
+  let periodInvWithdrawals = 0;
+
+  periodTxs.forEach(t => {
+    const amt = parseFloat(t.amount) || 0;
+    if (t.type === 'income') {
+      periodIncome += amt;
+    } else if (t.type === 'expense') {
+      periodExpenses += amt;
+    } else if (t.type === 'transfer') {
+      periodTransfers += amt;
+    } else if (t.type === 'card_payment') {
+      periodCardPayments += amt;
+    } else if (t.type === 'investment_contribution' || t.type === 'investment_deposit') {
+      periodInvContributions += amt;
+    } else if (t.type === 'investment_withdrawal') {
+      periodInvWithdrawals += amt;
+    }
+  });
+
+  const periodNetFlow = periodIncome - periodExpenses;
+
+  // 8. RECONSTRUCT HISTORICAL STARTING BALANCE BEFORE startDate
+  // All transactions that happened on or after startDate are rolled back from current liquid money
+  const futureTxs = await dbAll(
+    `SELECT type, amount FROM transactions 
+     WHERE date >= ? AND (status = 'confirmed' OR status IS NULL)`,
+    [startDate]
+  );
+
+  let initialLiquidBalance = liquidMoney;
+  futureTxs.forEach(t => {
+    const amt = parseFloat(t.amount) || 0;
+    if (t.type === 'income' || t.type === 'investment_withdrawal') {
+      initialLiquidBalance -= amt;
+    } else if (t.type === 'expense' || t.type === 'card_payment' || t.type === 'investment_contribution' || t.type === 'loan_payment') {
+      initialLiquidBalance += amt;
+    }
+  });
+
+  const finalLiquidBalancePeriod = initialLiquidBalance + periodIncome + periodInvWithdrawals - periodExpenses - periodCardPayments - periodInvContributions;
+
+  // 9. DAILY BUDGET STATUS
   let presupuestoDiario = {};
   try {
     presupuestoDiario = await budgetingService.getDailyBudgetStatus();
@@ -59,6 +117,7 @@ async function getSummaryMetrics() {
   }
 
   return {
+    // Current Real State (Unaltered by date filters)
     liquid_money: liquidMoney,
     investment_value: investmentValue,
     realizable_investments: realizableInvestments,
@@ -70,12 +129,25 @@ async function getSummaryMetrics() {
     total_debt: totalDebt,
     total_assets: totalAssets,
     net_worth: netWorth,
-    // Aliases and additional views support
     disponible_hoy: availableMoney,
     total_inversiones: investmentValue,
     total_deuda: totalDebt,
     riqueza_neta: netWorth,
-    presupuesto_diario: presupuestoDiario
+    presupuesto_diario: presupuestoDiario,
+
+    // Period-specific Metrics (Filtered by startDate / endDate)
+    period: {
+      start_date: startDate,
+      end_date: endDate,
+      saldo_inicial: parseFloat(initialLiquidBalance.toFixed(2)),
+      saldo_final: parseFloat(finalLiquidBalancePeriod.toFixed(2)),
+      income: parseFloat(periodIncome.toFixed(2)),
+      expenses: parseFloat(periodExpenses.toFixed(2)),
+      transfers: parseFloat(periodTransfers.toFixed(2)),
+      card_payments: parseFloat(periodCardPayments.toFixed(2)),
+      net_flow: parseFloat(periodNetFlow.toFixed(2)),
+      tx_count: periodTxs.length
+    }
   };
 }
 
@@ -91,9 +163,9 @@ async function getCashFlow(periodMonths = 1) {
     [startDate]
   );
 
-  let liquidIncome = 0;          // Entradas reales de liquidez (income, investment_withdrawal)
-  let liquidOutflow = 0;         // Salidas reales de liquidez (expense, card_payment, investment_contribution)
-  let economicExpense = 0;       // Gastos económicos (expense, card_purchase)
+  let liquidIncome = 0;
+  let liquidOutflow = 0;
+  let economicExpense = 0;
   let investmentContributions = 0;
   let investmentWithdrawals = 0;
   let cardPayments = 0;
@@ -106,15 +178,15 @@ async function getCashFlow(periodMonths = 1) {
       liquidOutflow += amt;
       economicExpense += amt;
     } else if (t.type === 'card_purchase') {
-      economicExpense += amt; // Gasto económico; liquidez inmediata = 0
+      economicExpense += amt;
     } else if (t.type === 'card_payment') {
-      liquidOutflow += amt; // Salida real de liquidez para saldar pasivo de tarjeta
+      liquidOutflow += amt;
       cardPayments += amt;
     } else if (t.type === 'investment_contribution' || t.type === 'investment_deposit') {
-      liquidOutflow += amt; // Transferencia de liquidez a inversión
+      liquidOutflow += amt;
       investmentContributions += amt;
     } else if (t.type === 'investment_withdrawal') {
-      liquidIncome += amt; // Retiro de inversión a liquidez
+      liquidIncome += amt;
       investmentWithdrawals += amt;
     }
   });
@@ -139,78 +211,53 @@ async function getCashFlow(periodMonths = 1) {
 async function getUpcomingPayments() {
   const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
   const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE active = 1');
-  const msiPlans = await dbAll('SELECT * FROM installment_plans WHERE remaining_balance > 0');
+  const msiPlans = await dbAll("SELECT * FROM installment_plans WHERE status = 'active' OR remaining_balance > 0");
 
   const payments = [];
   const processedCardIds = new Set();
 
-  // 1. MSI Installment Plans (Next Monthly Installment)
   msiPlans.forEach(m => {
     if (m.account_id) processedCardIds.add(m.account_id);
     payments.push({
-      id: m.id,
-      concept: `Mensualidad MSI: ${m.concept}`,
-      amount: parseFloat(m.monthly_amount),
-      due_date: m.start_date || null,
-      type: 'msi_installment',
-      source_account: m.account_id || null,
-      credit_card_id: m.account_id || null,
-      remaining_installments: m.installments_remaining !== undefined && m.installments_remaining !== null ? parseInt(m.installments_remaining, 10) : ((parseInt(m.installments_total || m.installment_count, 10) || 0) - (parseInt(m.installments_paid, 10) || 0)),
-      remaining_balance: parseFloat(m.remaining_balance || 0),
-      priority: 'high'
+      id: `msi_${m.id}`,
+      type: 'MSI',
+      concept: `MSI: ${m.concept}`,
+      monthly_amount: parseFloat(m.monthly_amount),
+      remaining_payments: parseInt(m.installments_remaining || (m.installments_total - m.installments_paid), 10),
+      total_balance: parseFloat(m.remaining_balance || m.remaining_principal),
+      account_id: m.account_id || m.credit_card_id
     });
   });
 
-  // 2. Non-MSI Debts or Card Minimum/No-Interest Payments
   debts.forEach(d => {
-    // If debt is a credit_card and has MSI plans, count regular payment obligation (min_payment or no_interest_payment)
-    const paymentAmount = parseFloat(d.no_interest_payment || d.min_payment || d.payment_amount || d.current_balance);
-    if (paymentAmount > 0) {
-      payments.push({
-        id: d.id,
-        concept: `Pago a Deuda: ${d.name}`,
-        amount: paymentAmount,
-        due_date: d.due_date || null,
-        type: 'debt_payment',
-        source_account: d.account_id || null,
-        credit_card_id: d.account_id || null,
-        priority: 'high'
-      });
-    }
-  });
-
-  // 3. Recurring Expenses
-  recurring.forEach(r => {
     payments.push({
-      id: r.id,
-      concept: `Gasto Recurrente: ${r.concept}`,
-      amount: parseFloat(r.amount),
-      due_date: r.next_due_date || null,
-      type: 'recurring_expense',
-      source_account: r.account_id || null,
-      priority: 'medium'
+      id: `debt_${d.id}`,
+      type: d.type === 'credit_card' ? 'credit_card' : 'loan',
+      name: d.name,
+      monthly_amount: parseFloat(d.payment_amount || d.min_payment || 0),
+      total_balance: parseFloat(d.current_balance || 0),
+      due_date: d.due_date,
+      cutoff_date: d.cutoff_date,
+      account_id: d.account_id
     });
   });
-
-  const totalUpcoming = payments.reduce((sum, p) => sum + p.amount, 0);
 
   return {
-    total_upcoming: totalUpcoming,
-    payments
+    upcoming_payments: payments,
+    total_monthly_commitment: payments.reduce((s, p) => s + (p.monthly_amount || 0), 0)
   };
 }
 
 /**
- * Reconstructs Timelines Date-by-Date based on Chronological Financial Deltas (Phase 3.3)
+ * Reconstructs Timelines Date-by-Date based on Chronological Financial Deltas
  */
-async function getTimelines() {
-  const currentSummary = await getSummaryMetrics();
+async function getTimelines(filters = {}) {
+  const currentSummary = await getSummaryMetrics(filters);
   const investments = await dbAll('SELECT * FROM investments');
-  const transactions = await dbAll("SELECT * FROM transactions WHERE status = 'confirmed' ORDER BY date ASC, id ASC");
+  const transactions = await dbAll("SELECT * FROM transactions WHERE (status = 'confirmed' OR status IS NULL) ORDER BY date ASC, id ASC");
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Group transactions by date
   const txByDateMap = new Map();
   transactions.forEach(t => {
     const d = t.date ? t.date.split('T')[0] : todayStr;
@@ -235,25 +282,17 @@ async function getTimelines() {
     debtTimeline.push({ date: todayStr, total_debt: currentSummary.total_debt, credit_card_debt: currentSummary.credit_card_debt, loan_debt: currentSummary.loan_debt });
     cashFlowTimeline.push({ date: todayStr, net_cash_flow: 0 });
   } else {
-    // REVERSE RECONSTRUCTION:
-    // Start with current summary state as of Today, and compute state for each date d
-    // by subtracting transaction deltas that occurred AFTER date d.
-
-    // Map from date to state at end of date d
     const dateStateMap = new Map();
 
-    // Copy current state
     let stateLiquid = currentSummary.liquid_money;
     let stateInvestment = currentSummary.investment_value;
     let stateRealizable = currentSummary.realizable_investments;
     let stateCardDebt = currentSummary.credit_card_debt;
     let stateLoanDebt = currentSummary.loan_debt;
 
-    // Process dates in reverse
     const revDates = [...sortedDates].reverse();
 
-    revDates.forEach((d, idx) => {
-      // Record state at end of date d
+    revDates.forEach((d) => {
       dateStateMap.set(d, {
         date: d,
         liquid_money: stateLiquid,
@@ -267,7 +306,6 @@ async function getTimelines() {
         net_worth: (stateLiquid + stateInvestment) - (stateCardDebt + stateLoanDebt)
       });
 
-      // Rollback deltas of transactions on date d to find state before date d
       const dayTxs = txByDateMap.get(d) || [];
       dayTxs.forEach(t => {
         const amt = parseFloat(t.amount) || 0;
@@ -299,7 +337,6 @@ async function getTimelines() {
       });
     });
 
-    // Build chronological timeline arrays
     sortedDates.forEach(d => {
       const st = dateStateMap.get(d);
       availableMoneyTimeline.push({ date: d, available_money: st.available_money });
@@ -324,8 +361,6 @@ async function getTimelines() {
     });
   }
 
-  // Investment Timeline with Accumulative Net Result Formula:
-  // accumulated_result = current_value + withdrawals_total - capital_contributed
   const investmentTimeline = investments.map(inv => {
     const currentVal = parseFloat(inv.current_value || inv.current_documented_value || 0);
     const capitalContributed = parseFloat(inv.capital_contributed || inv.invested_amount || 0);

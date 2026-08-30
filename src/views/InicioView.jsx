@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, PiggyBank, CreditCard, ShieldCheck, Sparkles, Calendar, TrendingUp, AlertCircle, ArrowUpRight, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  Wallet, PiggyBank, CreditCard, ShieldCheck, Sparkles, Calendar,
+  TrendingUp, TrendingDown, AlertCircle, ArrowUpRight, CheckCircle2,
+  RefreshCw, Layers, ArrowRight, Activity, DollarSign
+} from 'lucide-react';
 import { formatMoney } from '../utils/formatters';
 import { API_BASE } from '../config';
+import { useDateRange } from '../context/DateRangeContext';
 
 export default function InicioView({ summary: initialSummary, onNavigate, onRefresh, hideValues = false }) {
+  const { queryParams, label, startDate, endDate } = useDateRange();
   const [localSummary, setLocalSummary] = useState(initialSummary || null);
   const [loadingMetrics, setLoadingMetrics] = useState(!initialSummary);
 
   const fetchLiveSummary = () => {
     setLoadingMetrics(true);
-    fetch(`${API_BASE}/api/summary`)
+    fetch(`${API_BASE}/api/summary?${queryParams}`)
       .then(res => {
         if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         return res.json();
@@ -25,7 +31,7 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
 
   useEffect(() => {
     fetchLiveSummary();
-  }, []);
+  }, [queryParams]);
 
   useEffect(() => {
     if (initialSummary) {
@@ -34,7 +40,20 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
   }, [initialSummary]);
 
   const summary = localSummary || initialSummary || {};
+  const periodData = summary.period || {
+    start_date: startDate,
+    end_date: endDate,
+    saldo_inicial: 0,
+    saldo_final: 0,
+    income: 0,
+    expenses: 0,
+    transfers: 0,
+    card_payments: 0,
+    net_flow: 0,
+    tx_count: 0
+  };
 
+  // Real Present State
   const liquid_money = summary.liquid_money !== undefined ? parseFloat(summary.liquid_money) : parseFloat(summary.disponible_hoy || 0);
   const investment_value = summary.investment_value !== undefined ? parseFloat(summary.investment_value) : parseFloat(summary.total_inversiones || 0);
   const available_money = summary.available_money !== undefined ? parseFloat(summary.available_money) : (liquid_money + investment_value);
@@ -48,9 +67,7 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
     available_month: 1500,
     result: 'LESS_THAN_BUDGET'
   };
-  const coach_recomendacion_corta = summary.coach_recomendacion_corta || '';
 
-  // Daily budget text mapping according to Phase 3.1 specification
   const getBudgetStatusText = (status) => {
     switch (status) {
       case 'LESS_THAN_BUDGET':
@@ -64,198 +81,215 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
     }
   };
 
-  const budgetFoodResult = presupuesto_diario.result || (presupuesto_diario.available_today < 0 ? 'OVER_BUDGET' : 'LESS_THAN_BUDGET');
-  const budgetServicesResult = presupuesto_servicios.result || (presupuesto_servicios.available_month < 0 ? 'OVER_BUDGET' : 'LESS_THAN_BUDGET');
+  const isPeriodNetPositive = periodData.net_flow >= 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      
-      {/* 6 Core Financial Summary Cards defined in Phase 3.1 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.15rem' }}>
-        
-        {/* 1. DINERO EN CUENTAS (liquidMoney) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #38bdf8' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              DINERO EN CUENTAS
-            </span>
-            <span className="badge badge-info"><Wallet size={12} /> Cuentas Líquidas</span>
+
+      {/* ─────────────────────────────────────────────────────────────
+          1. PERIOD ACTIVITY BANNER (DURANTE EL PERIODO)
+      ───────────────────────────────────────────────────────────── */}
+      <div className="glass-card" style={{ padding: '1.25rem', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%)', borderLeft: '4px solid #3b82f6' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Calendar size={18} style={{ color: '#60a5fa' }} />
+              <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
+                Actividad del Periodo: {label}
+              </h3>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '0.2rem' }}>
+              {periodData.start_date} al {periodData.end_date} • {periodData.tx_count || 0} movimientos registrados
+            </p>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: '#f8fafc', margin: '0.4rem 0' }}>
-            {formatMoney(liquid_money, hideValues)}
+
+          <div style={{
+            padding: '0.3rem 0.75rem',
+            borderRadius: '8px',
+            fontSize: '0.8rem',
+            fontWeight: '700',
+            background: isPeriodNetPositive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)',
+            color: isPeriodNetPositive ? '#34d399' : '#fb7185',
+            border: `1px solid ${isPeriodNetPositive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)'}`
+          }}>
+            Flujo Neto: {isPeriodNetPositive ? '+' : ''}{formatMoney(periodData.net_flow, hideValues)}
           </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Nómina, Débito, Efectivo y Cajas inmediatamente disponibles.
-          </p>
         </div>
 
-        {/* 2. INVERSIONES (investmentValue) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #a855f7' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              INVERSIONES
-            </span>
-            <span className="badge badge-info"><PiggyBank size={12} /> Portafolio</span>
+        {/* 5 Period Flow Metric Pills */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+          <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Saldo Inicial</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-primary)', marginTop: '0.15rem' }}>
+              {formatMoney(periodData.saldo_inicial, hideValues)}
+            </div>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Al inicio del {periodData.start_date}</span>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: '#a855f7', margin: '0.4rem 0' }}>
-            {formatMoney(investment_value, hideValues)}
-          </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Valor actual total de activos de inversión.
-          </p>
-        </div>
 
-        {/* 3. DINERO DISPONIBLE (availableMoney) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #60a5fa' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              DINERO DISPONIBLE
-            </span>
-            <span className="badge badge-info">Liquidez + Inversiones</span>
+          <div style={{ background: 'rgba(16, 185, 129, 0.08)', padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#6ee7b7', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ingresos del Periodo</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#34d399', marginTop: '0.15rem' }}>
+              {formatMoney(periodData.income, hideValues)}
+            </div>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Entradas netas</span>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: '#f8fafc', margin: '0.4rem 0' }}>
-            {formatMoney(available_money, hideValues)}
-          </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Activos totales líquidos e inversiones documentadas.
-          </p>
-        </div>
 
-        {/* 4. DINERO GASTABLE (spendableMoney) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #10b981' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              DINERO GASTABLE
-            </span>
-            <span className="badge badge-success">Gasto Inmediato</span>
+          <div style={{ background: 'rgba(244, 63, 94, 0.08)', padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid rgba(244, 63, 94, 0.2)' }}>
+            <span style={{ fontSize: '0.72rem', color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Gastos del Periodo</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#f43f5e', marginTop: '0.15rem' }}>
+              {formatMoney(periodData.expenses, hideValues)}
+            </div>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Egresos y consumos</span>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: '#10b981', margin: '0.4rem 0' }}>
-            {formatMoney(spendable_money, hideValues)}
-          </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Liquidez + Inversiones de disponibilidad inmediata.
-          </p>
-        </div>
 
-        {/* 5. DEUDAS (totalDebt) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #f43f5e' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              DEUDAS
-            </span>
-            <span className="badge badge-danger"><CreditCard size={12} /> Pasivos</span>
+          <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Saldo Final Estimado</span>
+            <div style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-primary)', marginTop: '0.15rem' }}>
+              {formatMoney(periodData.saldo_final, hideValues)}
+            </div>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Al cierre del periodo</span>
           </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: '#f43f5e', margin: '0.4rem 0' }}>
-            {formatMoney(total_debt, hideValues)}
-          </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Tarjetas de crédito, mensualidades MSI y préstamos.
-          </p>
         </div>
-
-        {/* 6. PATRIMONIO NETO (netWorth) */}
-        <div className="glass-card" style={{ borderLeft: '4px solid #34d399' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              PATRIMONIO NETO
-            </span>
-            <span className="badge badge-success">Activos - Pasivos</span>
-          </div>
-          <div style={{ fontSize: '2.1rem', fontWeight: '700', color: net_worth < 0 ? '#f43f5e' : '#34d399', margin: '0.4rem 0' }}>
-            {formatMoney(net_worth, hideValues)}
-          </div>
-          <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-            Disponible ({formatMoney(available_money, hideValues)}) - Deudas ({formatMoney(total_debt, hideValues)})
-          </p>
-        </div>
-
       </div>
 
-      {/* Middle Grid: Presupuesto Alimentación (24h) y Presupuesto Servicios (Mensual) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.25rem' }}>
-        
-        {/* 1. Presupuesto Diario de Alimentación (24h) */}
-        <div className="glass-card" style={{ borderTop: '3px solid #f59e0b' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-              <Calendar size={18} style={{ color: '#f59e0b' }} /> Alimentación (Presupuesto 24h)
-            </h3>
-            <span className={`badge ${budgetFoodResult === 'OVER_BUDGET' ? 'badge-danger' : 'badge-success'}`}>
-              {getBudgetStatusText(budgetFoodResult)}
-            </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', textAlign: 'center', marginBottom: '0.85rem' }}>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Límite Diario</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f8fafc' }}>
-                {formatMoney(presupuesto_diario.budget_amount || presupuesto_diario.limite_diario || 200, hideValues)}
-              </div>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Gastado (24h)</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f43f5e' }}>
-                {formatMoney(presupuesto_diario.actual_spent || presupuesto_diario.gastado_hoy || 0, hideValues)}
-              </div>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Disponible (24h)</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: ((presupuesto_diario.available_today ?? 0) < 0) ? '#f43f5e' : '#34d399' }}>
-                {formatMoney(presupuesto_diario.available_today || presupuesto_diario.disponible_hoy || 0, hideValues)}
-              </div>
-            </div>
-          </div>
-          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
-            * Solo descuenta gastos de <strong>Alimentación</strong>. Se actualiza cada 24 horas.
-          </p>
+      {/* ─────────────────────────────────────────────────────────────
+          2. ESTADO FINANCIERO ACTUAL (HOY)
+      ───────────────────────────────────────────────────────────── */}
+      <div>
+        <div style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.75rem' }}>
+          Estado Financiero Actual (Cuentas, Inversiones y Deudas)
         </div>
-
-        {/* 2. Presupuesto Mensual de Servicios */}
-        <div className="glass-card" style={{ borderTop: '3px solid #38bdf8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-              <TrendingUp size={18} style={{ color: '#38bdf8' }} /> Servicios (Presupuesto Mensual)
-            </h3>
-            <span className={`badge ${budgetServicesResult === 'OVER_BUDGET' ? 'badge-danger' : 'badge-success'}`}>
-              {getBudgetStatusText(budgetServicesResult)}
-            </span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.15rem' }}>
+          
+          {/* DINERO EN CUENTAS */}
+          <div className="glass-card" style={{ borderLeft: '4px solid #38bdf8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                DINERO EN CUENTAS
+              </span>
+              <span className="badge badge-info"><Wallet size={12} /> Cuentas Líquidas</span>
+            </div>
+            <div style={{ fontSize: '1.9rem', fontWeight: '700', color: '#f8fafc', margin: '0.35rem 0' }}>
+              {formatMoney(liquid_money, hideValues)}
+            </div>
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              Nómina, Débito, Efectivo y Cajas disponibles hoy.
+            </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', textAlign: 'center', marginBottom: '0.85rem' }}>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Límite Mensual</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f8fafc' }}>
-                {formatMoney(presupuesto_servicios.budget_amount || presupuesto_servicios.limite_mensual || 1500, hideValues)}
-              </div>
+          {/* INVERSIONES */}
+          <div className="glass-card" style={{ borderLeft: '4px solid #a855f7' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                INVERSIONES
+              </span>
+              <span className="badge badge-info"><PiggyBank size={12} /> Portafolio</span>
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Gastado (Mes)</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: '#f43f5e' }}>
-                {formatMoney(presupuesto_servicios.actual_spent || presupuesto_servicios.gastado_mes || 0, hideValues)}
-              </div>
+            <div style={{ fontSize: '1.9rem', fontWeight: '700', color: '#a855f7', margin: '0.35rem 0' }}>
+              {formatMoney(investment_value, hideValues)}
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 0.5rem', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Disponible (Mes)</span>
-              <div style={{ fontSize: '1.15rem', fontWeight: '600', color: ((presupuesto_servicios.available_month ?? 0) < 0) ? '#f43f5e' : '#34d399' }}>
-                {formatMoney(presupuesto_servicios.available_month || presupuesto_servicios.disponible_mes || 0, hideValues)}
-              </div>
-            </div>
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              Valor actual total de activos de inversión.
+            </p>
           </div>
-          <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
-            * Solo descuenta gastos de <strong>Servicios</strong>. Se reinicia el 1° de cada mes.
-          </p>
+
+          {/* DEUDA TOTAL */}
+          <div className="glass-card" style={{ borderLeft: '4px solid #f43f5e' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                DEUDA TOTAL
+              </span>
+              <span className="badge" style={{ background: 'rgba(244,63,94,0.15)', color: '#fca5a5' }}>
+                <CreditCard size={12} /> Pasivos
+              </span>
+            </div>
+            <div style={{ fontSize: '1.9rem', fontWeight: '700', color: '#f43f5e', margin: '0.35rem 0' }}>
+              {formatMoney(total_debt, hideValues)}
+            </div>
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              Tarjetas de crédito, préstamos y saldo MSI pendiente.
+            </p>
+          </div>
+
+          {/* PATRIMONIO NETO */}
+          <div className="glass-card" style={{ borderLeft: '4px solid #10b981' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                PATRIMONIO NETO
+              </span>
+              <span className="badge badge-success"><Layers size={12} /> Riqueza Neta</span>
+            </div>
+            <div style={{ fontSize: '1.9rem', fontWeight: '700', color: net_worth >= 0 ? '#10b981' : '#f43f5e', margin: '0.35rem 0' }}>
+              {formatMoney(net_worth, hideValues)}
+            </div>
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              Activos totales menos pasivos totales.
+            </p>
+          </div>
+
         </div>
-
       </div>
 
-      {coach_recomendacion_corta && (
-        <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.85rem', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Sparkles size={20} style={{ color: '#60a5fa', flexShrink: 0 }} />
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            {coach_recomendacion_corta}
+      {/* ─────────────────────────────────────────────────────────────
+          3. PRESUPUESTOS (ALIMENTACIÓN 24H & SERVICIOS MENSUAL)
+      ───────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.15rem' }}>
+        {/* Presupuesto Diario de Alimentación */}
+        <div className="glass-card" style={{ borderLeft: '4px solid #f59e0b' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <div>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Presupuesto Alimentación (24h)
+              </span>
+              <h4 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#f8fafc' }}>
+                {presupuesto_diario.base_amount ? formatMoney(presupuesto_diario.base_amount, hideValues) : '$150.00'}/día
+              </h4>
+            </div>
+            <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>
+              {presupuesto_diario.available_today >= 0 ? 'Disponible Hoy' : 'Excedido'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '0.5rem 0' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Disponible para hoy:</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: '700', color: (presupuesto_diario.available_today || 0) >= 0 ? '#34d399' : '#f43f5e' }}>
+              {formatMoney(presupuesto_diario.available_today || 0, hideValues)}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            Gastado hoy: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_diario.actual_spent_today || 0, hideValues)}</strong>
           </div>
         </div>
-      )}
+
+        {/* Presupuesto Mensual de Servicios */}
+        <div className="glass-card" style={{ borderLeft: '4px solid #6366f1' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <div>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Presupuesto Servicios (Mensual)
+              </span>
+              <h4 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#f8fafc' }}>
+                {formatMoney(presupuesto_servicios.budget_amount || 1500, hideValues)}/mes
+              </h4>
+            </div>
+            <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' }}>
+              Servicios
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '0.5rem 0' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Disponible este mes:</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: '700', color: (presupuesto_servicios.available_month || 0) >= 0 ? '#34d399' : '#f43f5e' }}>
+              {formatMoney(presupuesto_servicios.available_month || 0, hideValues)}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            Gastado en servicios: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_servicios.actual_spent || 0, hideValues)}</strong>
+          </div>
+        </div>
+      </div>
 
     </div>
   );

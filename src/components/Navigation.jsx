@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
+import DateRangeSelector from './DateRangeSelector';
+
 export const TABS = [
   { id: 'inicio', label: 'Inicio', icon: LayoutDashboard },
   { id: 'cartera', label: 'Cartera', icon: Wallet },
@@ -59,7 +61,9 @@ export default function Navigation({ activeTab, setActiveTab, apiStatus, hideVal
           })}
         </nav>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <DateRangeSelector />
+
           <button
             type="button"
             onClick={onToggleHideValues}

@@ -28,8 +28,12 @@ export default function MSIConfigModal({ item, isDebt = false, onClose, onSaved 
       .then(res => res.json())
       .then(allPlans => {
         const itemPlans = allPlans.filter(p => {
-          if (accountId && p.account_id === accountId) return true;
-          if (debtId && p.debt_id === debtId) return true;
+          const targetCardId = isDebt ? item.account_id : item.id;
+          const targetDebtId = isDebt ? item.id : null;
+
+          if (targetCardId && (p.account_id === targetCardId || p.credit_card_id === targetCardId)) return true;
+          if (targetDebtId && p.debt_id === targetDebtId) return true;
+          if (item.account_id && (p.account_id === item.account_id || p.credit_card_id === item.account_id)) return true;
           // Match by name if ID didn't match directly
           if (item.name && p.concept) {
             const itemName = item.name.toLowerCase();
@@ -107,9 +111,13 @@ export default function MSIConfigModal({ item, isDebt = false, onClose, onSaved 
 
     const monthly = parseFloat(monthlyAmount);
 
+    const targetCardId = isDebt ? item.account_id : item.id;
+    const targetDebtId = isDebt ? item.id : null;
+
     const payload = {
-      account_id: accountId,
-      debt_id: debtId,
+      account_id: targetCardId,
+      credit_card_id: targetCardId,
+      debt_id: targetDebtId,
       concept,
       monthly_amount: monthly,
       installments_total: totalMonths,

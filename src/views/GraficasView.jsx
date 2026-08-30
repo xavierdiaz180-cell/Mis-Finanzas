@@ -10,6 +10,7 @@ import {
   PieChart as PieIcon, Percent, Sparkles, ChevronRight
 } from 'lucide-react';
 import { API_BASE } from '../config';
+import { useDateRange } from '../context/DateRangeContext';
 import { formatMoney } from '../utils/formatters';
 
 // Cohesive, limited 6-color palette (no rainbow confetti)
@@ -60,10 +61,10 @@ function ChartTooltip({ active, payload, label, hideValues }) {
 }
 
 export default function GraficasView({ hideValues = false }) {
+  const { startDate, endDate, preset, label, setPreset, queryParams } = useDateRange();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [period, setPeriod] = useState('12M'); // '3M' | '6M' | '12M' | 'YTD' | 'ALL'
   const [activeTraces, setActiveTraces] = useState({
     netWorth: true,
     liquid: true,
@@ -75,7 +76,7 @@ export default function GraficasView({ hideValues = false }) {
     else setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/charts/data`);
+      const res = await fetch(`${API_BASE}/api/charts/data?${queryParams}`);
       if (!res.ok) throw new Error('Error al consultar datos');
       const json = await res.json();
       setData(json);
@@ -89,7 +90,7 @@ export default function GraficasView({ hideValues = false }) {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [queryParams]);
 
   // Filter combined timeline based on selected period
   const filteredTimeline = useMemo(() => {
@@ -186,23 +187,23 @@ export default function GraficasView({ hideValues = false }) {
             gap: '2px'
           }}>
             {[
-              { id: '3M', label: '3M' },
-              { id: '6M', label: '6M' },
-              { id: '12M', label: '12M' },
-              { id: 'YTD', label: 'Este año' },
-              { id: 'ALL', label: 'Todo' }
+              { id: 'current_month', label: 'Este mes' },
+              { id: 'last_3m', label: '3M' },
+              { id: 'last_6m', label: '6M' },
+              { id: 'ytd', label: 'Este año' },
+              { id: 'all', label: 'Todo' }
             ].map(p => (
               <button
                 key={p.id}
-                onClick={() => setPeriod(p.id)}
+                onClick={() => setPreset(p.id)}
                 style={{
-                  background: period === p.id ? 'rgba(59, 130, 246, 0.25)' : 'transparent',
-                  border: period === p.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
-                  color: period === p.id ? '#ffffff' : 'var(--text-secondary)',
+                  background: preset === p.id ? 'rgba(59, 130, 246, 0.25)' : 'transparent',
+                  border: preset === p.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+                  color: preset === p.id ? '#ffffff' : 'var(--text-secondary)',
                   padding: '0.35rem 0.65rem',
                   borderRadius: '7px',
                   fontSize: '0.78rem',
-                  fontWeight: period === p.id ? '600' : '500',
+                  fontWeight: preset === p.id ? '600' : '500',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease'
                 }}

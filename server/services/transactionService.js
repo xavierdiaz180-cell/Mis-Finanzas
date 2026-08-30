@@ -198,11 +198,12 @@ async function executeCardPurchase({ credit_card_id, amount, concept, category =
 }
 
 /**
- * CARD-002: Pago de Tarjeta de Crédito (Con avance de MSI automático)
+ * CARD-002: Pago de Tarjeta de Crédito (Con avance multi-plan de MSI automático y trazabilidad completa)
  *
  * Regla de avance MSI:
- *   Si pago >= mensualidad del plan MSI más antiguo activo → installments_paid++
- *   remaining_balance se reduce por esa mensualidad.
+ *   Itera sobre todos los planes MSI activos de la tarjeta (ordenados por fecha de compra más antigua).
+ *   Para cada plan, si el pago cubre la mensualidad exigible, se avanza 1 cuota (installments_paid++).
+ *   El detalle de planes avanzados se guarda en transactions.notes para permitir reversión exacta al 100%.
  */
 async function executeCardPayment({ source_account_id, credit_card_id, amount, concept = 'Pago de tarjeta', date }) {
   const txDate = date || new Date().toISOString().split('T')[0];
@@ -243,24 +244,28 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
     // Sync debts table
     await client.query("UPDATE debts SET current_balance = GREATEST(0, current_balance - $1) WHERE type = 'credit_card' AND account_id = $2", [numAmount, credit_card_id]);
 
-    // MSI Advancement: oldest active plan gets one installment marked paid if payment covers it
+    // MSI Advancement: iterate through all active plans for this card ordered by purchase_date ASC, id ASC
     const msiRes = await client.query(
       `SELECT * FROM installment_plans
-       WHERE credit_card_id = $1
+       WHERE (credit_card_id = $1 OR account_id = $1)
          AND status = 'active'
          AND installments_paid < installments_total
-       ORDER BY purchase_date ASC NULLS LAST, id ASC
-       LIMIT 1`,
+       ORDER BY purchase_date ASC NULLS LAST, id ASC`,
       [credit_card_id]
     );
 
-    let msiAdvanced = null;
-    if (msiRes.rows.length > 0) {
-      const plan = msiRes.rows[0];
+    let paymentPool = numAmount;
+    const msiAdvancements = [];
+
+    for (const plan of msiRes.rows) {
       const monthly = parseFloat(plan.monthly_amount);
-      if (numAmount >= monthly) {
-        const newPaid = (parseInt(plan.installments_paid, 10) || 0) + 1;
-        const newRemaining = Math.max(0, (parseInt(plan.installments_remaining, 10) || parseInt(plan.installments_total, 10)) - 1);
+      const totalInst = parseInt(plan.installments_total, 10) || 12;
+      const currentPaid = parseInt(plan.installments_paid, 10) || 0;
+      const remInst = Math.max(0, totalInst - currentPaid);
+
+      if (paymentPool >= monthly && remInst > 0) {
+        const newPaid = currentPaid + 1;
+        const newRemaining = Math.max(0, totalInst - newPaid);
         const newRemBal = parseFloat((monthly * newRemaining).toFixed(2));
 
         await client.query(
@@ -273,26 +278,33 @@ async function executeCardPayment({ source_account_id, credit_card_id, amount, c
            WHERE id = $4`,
           [newPaid, newRemaining, newRemBal, plan.id]
         );
-        msiAdvanced = {
+
+        msiAdvancements.push({
           plan_id: plan.id,
           concept: plan.concept,
-          installments_paid: newPaid,
-          installments_remaining: newRemaining,
-          remaining_balance: newRemBal
-        };
+          monthly_amount: monthly,
+          previous_paid: currentPaid,
+          new_paid: newPaid,
+          new_remaining: newRemaining,
+          new_balance: newRemBal
+        });
+
+        paymentPool -= monthly;
       }
     }
 
+    const notesPayload = JSON.stringify({ msi_advancements: msiAdvancements });
+
     const txRes = await client.query(
-      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, transaction_datetime)
-       VALUES ($1, 'card_payment', $2, 'Pago de Deuda', $3, $4, $5, $4, 'manual', 'confirmed', CURRENT_TIMESTAMP) RETURNING id`,
-      [txDate, numAmount, concept, source_account_id, credit_card_id]
+      `INSERT INTO transactions (date, type, amount, category, concept, source_account_id, destination_account_id, account_id, source, status, notes, transaction_datetime)
+       VALUES ($1, 'card_payment', $2, 'Pago de Deuda', $3, $4, $5, $4, 'manual', 'confirmed', $6, CURRENT_TIMESTAMP) RETURNING id`,
+      [txDate, numAmount, concept, source_account_id, credit_card_id, notesPayload]
     );
 
     return {
       success: true,
       transaction_id: txRes.rows[0].id,
-      msi_advanced: msiAdvanced
+      msi_advancements: msiAdvancements
     };
   });
 }
@@ -434,7 +446,9 @@ async function executeInvestmentValuation({ investment_id, new_current_value, co
  * Queries transactions with dynamic filters (PostgreSQL native $N params)
  */
 async function getTransactions(filters = {}) {
-  const { type, category, account_id, concept, start_date, end_date } = filters;
+  const { type, category, account_id, concept } = filters;
+  const sDate = filters.start_date || filters.startDate;
+  const eDate = filters.end_date || filters.endDate;
   let sql = 'SELECT t.*, a.name as account_name FROM transactions t LEFT JOIN accounts a ON t.account_id = a.id WHERE 1=1';
   const params = [];
   let idx = 1;
@@ -443,8 +457,8 @@ async function getTransactions(filters = {}) {
   if (category) { sql += ` AND t.category = $${idx++}`; params.push(category); }
   if (account_id) { sql += ` AND t.account_id = $${idx++}`; params.push(account_id); }
   if (concept) { sql += ` AND t.concept ILIKE $${idx++}`; params.push(`%${concept}%`); }
-  if (start_date) { sql += ` AND t.date >= $${idx++}`; params.push(start_date); }
-  if (end_date) { sql += ` AND t.date <= $${idx++}`; params.push(end_date); }
+  if (sDate) { sql += ` AND t.date >= $${idx++}`; params.push(sDate); }
+  if (eDate) { sql += ` AND t.date <= $${idx++}`; params.push(eDate); }
 
   sql += ' ORDER BY t.date DESC, t.id DESC';
   const result = await pool.query(sql, params);
@@ -557,6 +571,39 @@ async function deleteTransactionSafely(transactionId) {
           const newAvail = creditLimit > 0 ? Math.max(0, creditLimit - newBal) : Math.max(0, parseFloat(card.available_credit || 0) - amount);
           await client.query('UPDATE accounts SET balance = $1, available_credit = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [newBal, newAvail, cardId]);
           await client.query("UPDATE debts SET current_balance = current_balance + $1 WHERE type = 'credit_card' AND account_id = $2", [amount, cardId]);
+        }
+      }
+
+      // Revert MSI plan advancements if recorded in notes
+      if (tx.notes) {
+        try {
+          const parsedNotes = typeof tx.notes === 'string' ? JSON.parse(tx.notes) : tx.notes;
+          if (parsedNotes && Array.isArray(parsedNotes.msi_advancements)) {
+            for (const adv of parsedNotes.msi_advancements) {
+              const pRes = await client.query('SELECT * FROM installment_plans WHERE id = $1 FOR UPDATE', [adv.plan_id]);
+              const plan = pRes.rows[0];
+              if (plan) {
+                const totalInst = parseInt(plan.installments_total, 10) || 12;
+                const revertedPaid = Math.max(0, (parseInt(plan.installments_paid, 10) || 0) - 1);
+                const revertedRemaining = Math.min(totalInst, totalInst - revertedPaid);
+                const monthly = parseFloat(plan.monthly_amount);
+                const revertedBal = parseFloat((monthly * revertedRemaining).toFixed(2));
+
+                await client.query(
+                  `UPDATE installment_plans
+                   SET installments_paid = $1,
+                       installments_remaining = $2,
+                       remaining_balance = $3,
+                       remaining_principal = $3,
+                       status = 'active'
+                   WHERE id = $4`,
+                  [revertedPaid, revertedRemaining, revertedBal, plan.id]
+                );
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error revirtiendo avances de MSI en deleteTransactionSafely:', e);
         }
       }
 

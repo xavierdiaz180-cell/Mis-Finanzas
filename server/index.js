@@ -165,7 +165,7 @@ app.delete('/api/investments/:id', investmentController.deleteInvestment);
 // CHARTS DATA API
 app.get('/api/charts/data', async (req, res) => {
   try {
-    const data = await getChartsData();
+    const data = await getChartsData(req.query);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });

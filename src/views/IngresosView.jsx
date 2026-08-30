@@ -3,6 +3,7 @@ import { TrendingUp, Filter, Plus, Sparkles, Trash2 } from 'lucide-react';
 import DocumentScannerModal from '../components/DocumentScannerModal';
 import { API_BASE } from '../config';
 import { formatMoney } from '../utils/formatters';
+import { useDateRange } from '../context/DateRangeContext';
 
 export default function IngresosView({ onRefresh, hideValues = false }) {
   const [incomes, setIncomes] = useState([]);
@@ -19,9 +20,11 @@ export default function IngresosView({ onRefresh, hideValues = false }) {
   // Filters
   const [filterAccount, setFilterAccount] = useState('');
 
+  const { startDate, endDate, queryParams } = useDateRange();
+
   const loadData = () => {
-    let url = `${API_BASE}/api/incomes`;
-    if (filterAccount) url += `?account_id=${filterAccount}`;
+    let url = `${API_BASE}/api/incomes?start_date=${startDate}&end_date=${endDate}`;
+    if (filterAccount) url += `&account_id=${filterAccount}`;
 
     fetch(url)
       .then(res => res.json())
@@ -44,7 +47,7 @@ export default function IngresosView({ onRefresh, hideValues = false }) {
 
   useEffect(() => {
     loadData();
-  }, [filterAccount]);
+  }, [filterAccount, startDate, endDate]);
 
   const handleAddIncome = (e) => {
     e.preventDefault();

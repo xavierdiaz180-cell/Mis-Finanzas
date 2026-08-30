@@ -50,14 +50,19 @@ async function getDebts(req, res) {
         (debt.account_id && plan.account_id === debt.account_id) ||
         (debt.account_id && plan.credit_card_id === debt.account_id)
       );
-      const activeMsiPlans = msi.filter(p =>
-        (parseInt(p.installments_paid, 10) || 0) < (parseInt(p.installments_total, 10) || 1)
-      );
+      const activeMsiPlans = msi.filter(p => {
+        const paid = parseInt(p.installments_paid, 10) || 0;
+        const total = parseInt(p.installments_total, 10) || 1;
+        return paid < total && p.status !== 'completed';
+      });
 
       const msiMonthlySum = activeMsiPlans.reduce((sum, p) => sum + (parseFloat(p.monthly_amount) || 0), 0);
       const msiRemainingTotal = activeMsiPlans.reduce((sum, p) => {
-        const remInst = Math.max(0, (parseInt(p.installments_total, 10) || 0) - (parseInt(p.installments_paid, 10) || 0));
-        return sum + (parseFloat(p.monthly_amount) * remInst);
+        const totalInst = parseInt(p.installments_total, 10) || 12;
+        const paidInst = parseInt(p.installments_paid, 10) || 0;
+        const remInst = parseInt(p.installments_remaining, 10) || Math.max(0, totalInst - paidInst);
+        const monthly = parseFloat(p.monthly_amount) || 0;
+        return sum + (monthly * remInst);
       }, 0);
 
       // For credit cards: use the linked account's balance as source of truth
