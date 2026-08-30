@@ -97,7 +97,17 @@ async function getFullAnalysisData() {
     });
   });
 
-  const currentMetrics = await calculateFinancialMetrics();
+  let currentMetrics = {};
+  try {
+    currentMetrics = await calculateFinancialMetrics();
+  } catch (e) {
+    console.error('Error in calculateFinancialMetrics:', e);
+    try {
+      currentMetrics = await financialMetricsService.getSummaryMetrics();
+    } catch (_) {
+      currentMetrics = {};
+    }
+  }
 
   return {
     monthly_trends: monthlyTrends,

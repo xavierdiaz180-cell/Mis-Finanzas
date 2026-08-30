@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, Wallet, CreditCard, PiggyBank, Activity,
   RefreshCw, ShieldCheck, AlertTriangle, CheckCircle2, Info,
   ArrowUpRight, ArrowDownRight, Layers, Calendar, DollarSign,
-  PieChart as PieIcon, Percent, Sparkles, ChevronRight
+  PieChart as PieIcon, Percent, Sparkles, ChevronRight, SlidersHorizontal
 } from 'lucide-react';
 import { API_BASE } from '../config';
 import { useDateRange } from '../context/DateRangeContext';
@@ -92,7 +92,6 @@ export default function GraficasView({ hideValues = false }) {
     loadData();
   }, [queryParams]);
 
-  // Combined timeline and monthly flow (automatically filtered by backend with global date range)
   const filteredTimeline = useMemo(() => {
     return data?.patrimonioTimeline || [];
   }, [data?.patrimonioTimeline]);
@@ -120,15 +119,25 @@ export default function GraficasView({ hideValues = false }) {
     insights = []
   } = data || {};
 
+  const period = summary.period || {
+    start_date: startDate,
+    end_date: endDate,
+    income: 0,
+    expenses: 0,
+    net_flow: 0,
+    saldo_inicial: 0,
+    saldo_final: 0,
+    tx_count: 0
+  };
+
   const isNetWorthPositive = (summary.net_worth || 0) >= 0;
-  const periodNetVal = summary?.period?.net_flow !== undefined ? summary.period.net_flow : (monthlyFlowSummary?.thisMonth?.net || 0);
-  const isMonthNetPositive = periodNetVal >= 0;
+  const isPeriodNetPositive = (period.net_flow || 0) >= 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem', width: '100%', maxWidth: '1320px', margin: '0 auto' }}>
 
       {/* ─────────────────────────────────────────────────────────────
-          1. HEADER & GLOBAL PERIOD SELECTOR
+          1. HEADER & PERIOD SELECTOR BAR
       ───────────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex',
@@ -142,10 +151,10 @@ export default function GraficasView({ hideValues = false }) {
         <div>
           <h2 style={{ fontSize: '1.45rem', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Activity size={24} style={{ color: PALETTE.primary }} />
-            Análisis Financiero
+            Centro de Análisis Financiero
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', marginTop: '0.2rem' }}>
-            Entiende cómo está evolucionando tu dinero, deuda y patrimonio.
+            Periodo Activo: <strong style={{ color: '#93c5fd' }}>{label}</strong> ({period.start_date} al {period.end_date})
           </p>
         </div>
 
@@ -161,8 +170,9 @@ export default function GraficasView({ hideValues = false }) {
           }}>
             {[
               { id: 'current_month', label: 'Este mes' },
-              { id: 'last_3m', label: '3M' },
-              { id: 'last_6m', label: '6M' },
+              { id: 'prev_month', label: 'Mes anterior' },
+              { id: 'last_3m', label: '3 Meses' },
+              { id: 'last_6m', label: '6 Meses' },
               { id: 'ytd', label: 'Este año' },
               { id: 'all', label: 'Todo' }
             ].map(p => (
@@ -210,103 +220,108 @@ export default function GraficasView({ hideValues = false }) {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          2. FINANCIAL SUMMARY (5 KEY METRICS)
+          2. PERIOD FLOW CARDS (REACTS DYNAMICALLY TO SELECTED RANGE)
       ───────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        gap: '1rem'
-      }}>
-        {/* Card 1: Patrimonio Neto */}
-        <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${isNetWorthPositive ? PALETTE.purple : PALETTE.rose}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Patrimonio Neto
-            </span>
-            <Layers size={16} style={{ color: isNetWorthPositive ? PALETTE.purple : PALETTE.rose }} />
-          </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: '700', color: isNetWorthPositive ? 'var(--text-primary)' : PALETTE.rose, letterSpacing: '-0.5px' }}>
-            {formatMoney(summary.net_worth, hideValues)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Activos menos pasivos</span>
-          </div>
+      <div>
+        <div style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.65rem' }}>
+          Actividad Financiera en el Periodo ({label})
         </div>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gap: '1rem'
+        }}>
+          {/* Ingresos en Periodo */}
+          <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.emerald}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+              <span style={{ color: '#6ee7b7', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Ingresos en Periodo
+              </span>
+              <TrendingUp size={16} style={{ color: PALETTE.emerald }} />
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#34d399', letterSpacing: '-0.5px' }}>
+              {formatMoney(period.income, hideValues)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              Entradas en el rango
+            </div>
+          </div>
 
-        {/* Card 2: Liquidez Disponible */}
-        <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.emerald}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Liquidez
-            </span>
-            <Wallet size={16} style={{ color: PALETTE.emerald }} />
+          {/* Gastos en Periodo */}
+          <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.rose}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+              <span style={{ color: '#fca5a5', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Gastos en Periodo
+              </span>
+              <TrendingDown size={16} style={{ color: PALETTE.rose }} />
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: '700', color: '#f43f5e', letterSpacing: '-0.5px' }}>
+              {formatMoney(period.expenses, hideValues)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              Egresos y consumos
+            </div>
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            {formatMoney(summary.liquid_money, hideValues)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Cuentas líquidas y débito</span>
-          </div>
-        </div>
 
-        {/* Card 3: Deuda Total */}
-        <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.rose}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Deuda Total
-            </span>
-            <CreditCard size={16} style={{ color: PALETTE.rose }} />
+          {/* Flujo Neto en Periodo */}
+          <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${isPeriodNetPositive ? PALETTE.emerald : PALETTE.amber}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+              <span style={{ color: isPeriodNetPositive ? '#6ee7b7' : '#fcd34d', fontSize: '0.78rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Flujo Neto Periodo
+              </span>
+              {isPeriodNetPositive ? <TrendingUp size={16} style={{ color: PALETTE.emerald }} /> : <TrendingDown size={16} style={{ color: PALETTE.amber }} />}
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: '700', color: isPeriodNetPositive ? '#34d399' : '#fbbf24', letterSpacing: '-0.5px' }}>
+              {isPeriodNetPositive ? '+' : ''}{formatMoney(period.net_flow, hideValues)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              {isPeriodNetPositive ? 'Superávit en el periodo' : 'Déficit en el periodo'}
+            </div>
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: '700', color: summary.total_debt > 0 ? PALETTE.rose : 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            {formatMoney(summary.total_debt, hideValues)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Tarjetas, préstamos y MSI</span>
-          </div>
-        </div>
 
-        {/* Card 4: Inversiones */}
-        <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.primary}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Inversiones
-            </span>
-            <PiggyBank size={16} style={{ color: PALETTE.primary }} />
+          {/* Liquidez Actual Hoy */}
+          <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${PALETTE.primary}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Liquidez Hoy
+              </span>
+              <Wallet size={16} style={{ color: PALETTE.primary }} />
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
+              {formatMoney(summary.liquid_money, hideValues)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              Cuentas líquidas hoy
+            </div>
           </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            {formatMoney(summary.investment_value, hideValues)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>Rendimiento: {investments.totalReturnPct >= 0 ? '+' : ''}{investments.totalReturnPct}%</span>
-          </div>
-        </div>
 
-        {/* Card 5: Flujo del Mes */}
-        <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${isMonthNetPositive ? PALETTE.emerald : PALETTE.amber}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Flujo del Mes
-            </span>
-            {isMonthNetPositive ? <TrendingUp size={16} style={{ color: PALETTE.emerald }} /> : <TrendingDown size={16} style={{ color: PALETTE.amber }} />}
-          </div>
-          <div style={{ fontSize: '1.45rem', fontWeight: '700', color: isMonthNetPositive ? PALETTE.emerald : PALETTE.amber, letterSpacing: '-0.5px' }}>
-            {formatMoney(summary.this_month_net, hideValues)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            <span>{isMonthNetPositive ? 'Superávit mensual' : 'Déficit mensual'}</span>
+          {/* Patrimonio Neto Hoy */}
+          <div className="glass-card" style={{ padding: '1.15rem 1.25rem', borderLeft: `3px solid ${isNetWorthPositive ? PALETTE.purple : PALETTE.rose}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Patrimonio Neto
+              </span>
+              <Layers size={16} style={{ color: PALETTE.purple }} />
+            </div>
+            <div style={{ fontSize: '1.45rem', fontWeight: '700', color: isNetWorthPositive ? '#a855f7' : PALETTE.rose, letterSpacing: '-0.5px' }}>
+              {formatMoney(summary.net_worth, hideValues)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+              Activos menos deuda
+            </div>
           </div>
         </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          3. AUTOMATIC FACTUAL INSIGHTS (HALLAZGOS REALES)
+          3. AUTOMATIC FACTUAL INSIGHTS
       ───────────────────────────────────────────────────────────── */}
       {insights && insights.length > 0 && (
         <div className="glass-card" style={{ padding: '1rem 1.25rem', background: 'rgba(15, 23, 42, 0.65)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <Sparkles size={16} style={{ color: PALETTE.amber }} />
             <h3 style={{ fontSize: '0.92rem', fontWeight: '700', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Hallazgos y Diagnóstico Financiero
+              Diagnóstico Financiero ({label})
             </h3>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
@@ -346,10 +361,10 @@ export default function GraficasView({ hideValues = false }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
           <div>
             <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-              Evolución del Patrimonio
+              Evolución del Patrimonio en el Periodo
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-              Seguimiento histórico de tu riqueza neta, dinero disponible y nivel de deuda.
+              Seguimiento cronológico de riqueza neta, disponible y deuda en {label}.
             </p>
           </div>
 
@@ -360,19 +375,19 @@ export default function GraficasView({ hideValues = false }) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.35rem',
-                fontSize: '0.75rem',
-                fontWeight: '600',
-                padding: '0.3rem 0.6rem',
-                borderRadius: '6px',
-                background: activeTraces.netWorth ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+                gap: '0.4rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '8px',
+                background: activeTraces.netWorth ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${activeTraces.netWorth ? PALETTE.purple : 'var(--border-subtle)'}`,
                 color: activeTraces.netWorth ? '#c084fc' : 'var(--text-muted)',
+                fontSize: '0.75rem',
+                fontWeight: '600',
                 cursor: 'pointer'
               }}
             >
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.purple }} />
-              Patrimonio Neto
+              <span>Patrimonio Neto</span>
             </button>
 
             <button
@@ -380,19 +395,19 @@ export default function GraficasView({ hideValues = false }) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.35rem',
-                fontSize: '0.75rem',
-                fontWeight: '600',
-                padding: '0.3rem 0.6rem',
-                borderRadius: '6px',
-                background: activeTraces.liquid ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                gap: '0.4rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '8px',
+                background: activeTraces.liquid ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${activeTraces.liquid ? PALETTE.emerald : 'var(--border-subtle)'}`,
                 color: activeTraces.liquid ? '#34d399' : 'var(--text-muted)',
+                fontSize: '0.75rem',
+                fontWeight: '600',
                 cursor: 'pointer'
               }}
             >
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.emerald }} />
-              Liquidez
+              <span>Disponible</span>
             </button>
 
             <button
@@ -400,218 +415,144 @@ export default function GraficasView({ hideValues = false }) {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.35rem',
-                fontSize: '0.75rem',
-                fontWeight: '600',
-                padding: '0.3rem 0.6rem',
-                borderRadius: '6px',
-                background: activeTraces.debt ? 'rgba(244, 63, 94, 0.2)' : 'transparent',
+                gap: '0.4rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '8px',
+                background: activeTraces.debt ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${activeTraces.debt ? PALETTE.rose : 'var(--border-subtle)'}`,
                 color: activeTraces.debt ? '#fb7185' : 'var(--text-muted)',
+                fontSize: '0.75rem',
+                fontWeight: '600',
                 cursor: 'pointer'
               }}
             >
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: PALETTE.rose }} />
-              Deuda
+              <span>Deuda</span>
             </button>
           </div>
         </div>
 
-        {filteredTimeline.length === 0 ? (
-          <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
-            No hay registros suficientes en este periodo para graficar el patrimonio.
-          </div>
-        ) : (
-          <div style={{ width: '100%', height: 320 }}>
+        <div style={{ width: '100%', height: 320 }}>
+          {filteredTimeline.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.88rem' }}>
+              No hay movimientos registrados en el periodo seleccionado.
+            </div>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={filteredTimeline} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <AreaChart data={filteredTimeline} margin={{ top: 10, right: 15, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="netWorthGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PALETTE.purple} stopOpacity={0.4} />
                     <stop offset="95%" stopColor={PALETTE.purple} stopOpacity={0.0} />
                   </linearGradient>
-                  <linearGradient id="liquidGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={PALETTE.emerald} stopOpacity={0.25} />
+                  <linearGradient id="colorLiquid" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={PALETTE.emerald} stopOpacity={0.3} />
                     <stop offset="95%" stopColor={PALETTE.emerald} stopOpacity={0.0} />
                   </linearGradient>
-                  <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorDebt" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={PALETTE.rose} stopOpacity={0.25} />
                     <stop offset="95%" stopColor={PALETTE.rose} stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  stroke="var(--text-muted)"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
-                  dy={6}
-                />
-                <YAxis
-                  stroke="var(--text-muted)"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={val => `$${(val / 1000).toFixed(0)}k`}
-                />
+
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} />
+                <YAxis stroke="#64748b" fontSize={11} tickLine={false} axisLine={{ stroke: 'rgba(255,255,255,0.1)' }} tickFormatter={(val) => hideValues ? '•••' : `$${(val / 1000).toFixed(0)}k`} />
                 <Tooltip content={<ChartTooltip hideValues={hideValues} />} />
+
                 {activeTraces.netWorth && (
-                  <Area
-                    type="monotone"
-                    dataKey="net_worth"
-                    name="Patrimonio Neto"
-                    stroke={PALETTE.purple}
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#netWorthGrad)"
-                  />
+                  <Area type="monotone" dataKey="net_worth" name="Patrimonio Neto" stroke={PALETTE.purple} strokeWidth={2.5} fillOpacity={1} fill="url(#colorNetWorth)" />
                 )}
                 {activeTraces.liquid && (
-                  <Area
-                    type="monotone"
-                    dataKey="available"
-                    name="Liquidez"
-                    stroke={PALETTE.emerald}
-                    strokeWidth={1.8}
-                    fillOpacity={1}
-                    fill="url(#liquidGrad)"
-                  />
+                  <Area type="monotone" dataKey="available" name="Dinero Disponible" stroke={PALETTE.emerald} strokeWidth={2} fillOpacity={1} fill="url(#colorLiquid)" />
                 )}
                 {activeTraces.debt && (
-                  <Area
-                    type="monotone"
-                    dataKey="debt"
-                    name="Deuda"
-                    stroke={PALETTE.rose}
-                    strokeWidth={1.8}
-                    fillOpacity={1}
-                    fill="url(#debtGrad)"
-                  />
+                  <Area type="monotone" dataKey="debt" name="Deuda Total" stroke={PALETTE.rose} strokeWidth={2} fillOpacity={1} fill="url(#colorDebt)" />
                 )}
               </AreaChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          5. TWO COLUMNS: INGRESOS VS GASTOS & GASTOS POR CATEGORÍA
+          5. MONTHLY CASH FLOW COMPARISON (INGRESOS VS GASTOS)
       ───────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-        gap: '1.25rem'
-      }}>
-        {/* Left Column: Ingresos vs Gastos */}
-        <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+        <div className="glass-card" style={{ padding: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-                Ingresos vs Gastos
+                Flujo de Efectivo en el Periodo
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                ¿Estás generando o consumiendo dinero?
+                Comparativa de ingresos y gastos mensuales en {label}.
               </p>
             </div>
-            <div style={{
-              padding: '0.25rem 0.6rem',
-              borderRadius: '6px',
-              fontSize: '0.75rem',
-              fontWeight: '700',
-              background: isMonthNetPositive ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
-              color: isMonthNetPositive ? '#34d399' : '#fb7185',
-              border: `1px solid ${isMonthNetPositive ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)'}`
-            }}>
-              {isMonthNetPositive ? 'Generando dinero' : 'Consumiendo dinero'}
-            </div>
           </div>
 
-          {/* Mini summary badges */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '0.5rem',
-            marginBottom: '1rem',
-            padding: '0.6rem',
-            borderRadius: '8px',
-            background: 'rgba(0,0,0,0.25)'
-          }}>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Este mes (Neto)</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: isMonthNetPositive ? PALETTE.emerald : PALETTE.rose }}>
-                {formatMoney(monthlyFlowSummary.thisMonth?.net, hideValues, 0)}
+          <div style={{ width: '100%', height: 260 }}>
+            {filteredMonthlyFlow.length === 0 ? (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No hay movimientos registrados para este periodo.
               </div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Promedio 6M</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                {formatMoney(monthlyFlowSummary.avg6Months?.net, hideValues, 0)}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Var. Gastos MoM</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: (monthlyFlowSummary.expenseMomPct || 0) <= 0 ? PALETTE.emerald : PALETTE.rose }}>
-                {(monthlyFlowSummary.expenseMomPct || 0) > 0 ? '+' : ''}{monthlyFlowSummary.expenseMomPct || 0}%
-              </div>
-            </div>
-          </div>
-
-          <div style={{ width: '100%', height: 240, flexGrow: 1 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={filteredMonthlyFlow} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="label" stroke="var(--text-muted)" fontSize={10} tickLine={false} dy={4} />
-                <YAxis stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip content={<ChartTooltip hideValues={hideValues} />} />
-                <Bar dataKey="income" name="Ingresos" fill={PALETTE.emerald} radius={[4, 4, 0, 0]} maxBarSize={22} />
-                <Bar dataKey="expenses" name="Gastos" fill={PALETTE.rose} radius={[4, 4, 0, 0]} maxBarSize={22} />
-              </BarChart>
-            </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={filteredMonthlyFlow} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(val) => hideValues ? '•••' : `$${(val / 1000).toFixed(0)}k`} />
+                  <Tooltip content={<ChartTooltip hideValues={hideValues} />} />
+                  <Bar dataKey="income" name="Ingresos" fill={PALETTE.emerald} radius={[4, 4, 0, 0]} maxBarSize={30} />
+                  <Bar dataKey="expenses" name="Gastos" fill={PALETTE.rose} radius={[4, 4, 0, 0]} maxBarSize={30} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Right Column: Gastos por Categoría */}
-        <div className="glass-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column' }}>
+        {/* ─────────────────────────────────────────────────────────────
+            6. EXPENSES BY CATEGORY (TOP 5 + OTROS)
+        ───────────────────────────────────────────────────────────── */}
+        <div className="glass-card" style={{ padding: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)' }}>
                 Gastos por Categoría
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                Principales destinos de tus recursos (Top 5 + Otros).
+                Distribución en {label}.
               </p>
             </div>
+            <span className="badge badge-info" style={{ fontSize: '0.74rem' }}>
+              {expensesByCategory.length} categorías
+            </span>
           </div>
 
           {expensesByCategory.length === 0 ? (
-            <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              Sin gastos registrados en el periodo seleccionado.
+            <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              No hay gastos en el periodo seleccionado.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '0.25rem' }}>
-              {expensesByCategory.map((cat, idx) => {
-                const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+              {expensesByCategory.map((cat, i) => {
+                const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
                 return (
-                  <div key={idx}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-                        <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{cat.category}</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>({cat.count} movs)</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                        <span style={{ color: 'var(--text-primary)', fontWeight: '700' }}>
-                          {formatMoney(cat.total, hideValues, 0)}
-                        </span>
-                        <span style={{ color: color, fontWeight: '700', fontSize: '0.78rem', minWidth: '38px', textAlign: 'right' }}>
-                          {cat.percentage}%
+                        {cat.category}
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{cat.percentage}%</span>
+                        <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
+                          {formatMoney(cat.total, hideValues)}
                         </span>
                       </div>
                     </div>
-                    {/* Horizontal Progress Bar */}
-                    <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(100, Math.max(2, cat.percentage))}%`, height: '100%', background: color, borderRadius: '3px', transition: 'width 0.4s ease' }} />
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${Math.min(100, cat.percentage)}%`, height: '100%', background: color, borderRadius: '3px', transition: 'width 0.4s ease' }} />
                     </div>
                   </div>
                 );
@@ -622,53 +563,44 @@ export default function GraficasView({ hideValues = false }) {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          6. TWO COLUMNS: DEUDA Y TARJETAS & MESES SIN INTERESES (MSI)
+          7. DEBT, CREDIT UTILIZATION & MSI
       ───────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-        gap: '1.25rem'
-      }}>
-        {/* Left: Deuda & Tarjetas de Crédito */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+        
+        {/* Tarjetas y Utilización de Crédito */}
         <div className="glass-card" style={{ padding: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-                Tarjetas y Utilización de Crédito
+                Utilización de Tarjetas de Crédito
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                Capacidad utilizada sobre tus límites de crédito.
+                Monitoreo de saldo respecto a tu límite crediticio.
               </p>
             </div>
-            <span style={{ color: PALETTE.rose, fontSize: '0.85rem', fontWeight: '700' }}>
-              {formatMoney(debts.total_debt, hideValues)} total
-            </span>
           </div>
 
           {(!debts.cards || debts.cards.length === 0) ? (
-            <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            <div style={{ height: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
               No tienes tarjetas de crédito registradas.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               {debts.cards.map((card, i) => {
                 const util = card.utilization_pct || 0;
-                const barColor = util > 75 ? PALETTE.rose : util > 40 ? PALETTE.amber : PALETTE.emerald;
+                const utilColor = util > 70 ? PALETTE.rose : util > 40 ? PALETTE.amber : PALETTE.emerald;
                 return (
-                  <div key={card.id || i} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                      <span style={{ fontWeight: '600', fontSize: '0.86rem', color: 'var(--text-primary)' }}>{card.name}</span>
-                      <span style={{ fontSize: '0.8rem', fontWeight: '700', color: barColor }}>{util}% usado</span>
+                  <div key={i} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                      <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{card.name}</span>
+                      <span style={{ fontWeight: '700', color: utilColor }}>{util}% utilizado</span>
                     </div>
-
-                    <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden', marginBottom: '0.45rem' }}>
-                      <div style={{ width: `${Math.min(100, Math.max(0, util))}%`, height: '100%', background: barColor, borderRadius: '3px' }} />
+                    <div style={{ width: '100%', height: '7px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden', marginBottom: '0.4rem' }}>
+                      <div style={{ width: `${util}%`, height: '100%', background: utilColor, borderRadius: '4px' }} />
                     </div>
-
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
                       <span>Saldo: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(card.balance, hideValues)}</strong></span>
-                      <span>Disponible: <strong style={{ color: PALETTE.emerald }}>{formatMoney(card.available_credit, hideValues)}</strong></span>
-                      <span>Límite: <strong style={{ color: 'var(--text-secondary)' }}>{formatMoney(card.credit_limit, hideValues)}</strong></span>
+                      <span>Límite: {formatMoney(card.credit_limit, hideValues)}</span>
                     </div>
                   </div>
                 );
@@ -677,185 +609,41 @@ export default function GraficasView({ hideValues = false }) {
           )}
         </div>
 
-        {/* Right: Meses Sin Intereses (MSI) */}
+        {/* Proyección de Amortización MSI */}
         <div className="glass-card" style={{ padding: '1.25rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-                Meses Sin Intereses (MSI)
+                Proyección Meses Sin Intereses (MSI)
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                Compromisos mensuales y amortización proyectada.
+                Evolución de saldo pendiente de tus {msi.active_plans_count || 0} compras activas.
               </p>
             </div>
-            <span style={{ color: PALETTE.amber, fontSize: '0.85rem', fontWeight: '700' }}>
-              {formatMoney(msi.total_msi_remaining, hideValues)}
+            <span className="badge badge-warning" style={{ fontSize: '0.74rem' }}>
+              {formatMoney(msi.total_monthly_commitment || 0, hideValues)}/mes
             </span>
           </div>
 
-          {/* MSI Top KPI pill */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '0.5rem',
-            marginBottom: '1rem',
-            padding: '0.6rem',
-            borderRadius: '8px',
-            background: 'rgba(0,0,0,0.25)'
-          }}>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Total pendiente</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: PALETTE.amber }}>
-                {formatMoney(msi.total_msi_remaining, hideValues, 0)}
-              </div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Pago mensual</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                {formatMoney(msi.total_monthly_commitment, hideValues, 0)}/m
-              </div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Planes activos</div>
-              <div style={{ fontWeight: '700', fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                {msi.active_plans_count || 0}
-              </div>
-            </div>
-          </div>
-
-          {/* MSI Amortization Curve */}
-          {msi.projection && msi.projection.length > 1 && (
-            <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
-                Proyección de saldo MSI (próximos meses):
-              </div>
-              <div style={{ width: '100%', height: 120 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={msi.projection} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                    <XAxis dataKey="label" stroke="var(--text-muted)" fontSize={9} tickLine={false} />
-                    <YAxis stroke="var(--text-muted)" fontSize={9} tickLine={false} axisLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip content={<ChartTooltip hideValues={hideValues} />} />
-                    <Area type="monotone" dataKey="balance" name="Saldo MSI" stroke={PALETTE.amber} fill={PALETTE.amber} fillOpacity={0.15} strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* MSI Plans List */}
-          {(!msi.plans || msi.plans.length === 0) ? (
-            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-              No hay planes de MSI activos actualmente.
+          {(!msi.projection || msi.projection.length <= 1) ? (
+            <div style={{ height: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              No tienes compras a meses sin intereses pendientes.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
-              {msi.plans.map(p => {
-                const pct = p.installments_total > 0 ? ((p.installments_paid / p.installments_total) * 100).toFixed(0) : 0;
-                return (
-                  <div key={p.id} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.55rem 0.75rem', borderRadius: '7px', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-primary)' }}>
-                      <span>{p.concept}</span>
-                      <span style={{ color: PALETTE.amber }}>{formatMoney(p.remaining_balance, hideValues)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                      <span>{p.installments_paid}/{p.installments_total} pagos ({pct}%)</span>
-                      <span>{formatMoney(p.monthly_amount, hideValues)}/mes</span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={{ width: '100%', height: 190 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={msi.projection} margin={{ top: 5, right: 15, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="label" stroke="#64748b" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} tickFormatter={(val) => hideValues ? '•••' : `$${(val / 1000).toFixed(0)}k`} />
+                  <Tooltip content={<ChartTooltip hideValues={hideValues} />} />
+                  <Line type="monotone" dataKey="balance" name="Saldo MSI Restante" stroke={PALETTE.amber} strokeWidth={2.5} dot={{ r: 3, fill: PALETTE.amber }} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
-      </div>
 
-      {/* ─────────────────────────────────────────────────────────────
-          7. INVERSIONES & RENDIMIENTOS
-      ───────────────────────────────────────────────────────────── */}
-      <div className="glass-card" style={{ padding: '1.25rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-          <div>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: '700', color: 'var(--text-primary)' }}>
-              Inversiones y Portafolio
-            </h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-              Comparativa de capital aportado vs valor de mercado documentado.
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Aportado: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(investments.totalInvested, hideValues)}</strong>
-            </div>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Valor actual: <strong style={{ color: PALETTE.emerald }}>{formatMoney(investments.totalCurrentValue, hideValues)}</strong>
-            </div>
-            <div style={{
-              padding: '0.25rem 0.55rem',
-              borderRadius: '6px',
-              fontSize: '0.78rem',
-              fontWeight: '700',
-              background: investments.totalReturn >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)',
-              color: investments.totalReturn >= 0 ? '#34d399' : '#fb7185',
-              border: `1px solid ${investments.totalReturn >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)'}`
-            }}>
-              {investments.totalReturnPct >= 0 ? '+' : ''}{investments.totalReturnPct}%
-            </div>
-          </div>
-        </div>
-
-        {(!investments.list || investments.list.length === 0) ? (
-          <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            No tienes inversiones registradas en tu portafolio.
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.85rem' }}>
-            {investments.list.map(inv => {
-              const gain = inv.accumulated_result !== undefined ? inv.accumulated_result : (inv.current_value - inv.contributed);
-              const isGainPositive = gain >= 0;
-              return (
-                <div key={inv.id || inv.name} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-                    <span style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text-primary)' }}>{inv.name}</span>
-                    <span style={{
-                      fontSize: '0.72rem',
-                      fontWeight: '600',
-                      padding: '0.15rem 0.45rem',
-                      borderRadius: '4px',
-                      background: inv.is_liquid ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.15)',
-                      color: inv.is_liquid ? '#34d399' : 'var(--text-muted)',
-                      border: `1px solid ${inv.is_liquid ? 'rgba(16,185,129,0.3)' : 'rgba(100,116,139,0.3)'}`
-                    }}>
-                      {inv.is_liquid ? 'LÍQUIDA' : 'NO LÍQUIDA'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.4rem' }}>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Capital aportado</div>
-                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                        {formatMoney(inv.contributed || inv.invested, hideValues)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Valor actual</div>
-                      <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: '700' }}>
-                        {formatMoney(inv.current_value || inv.current, hideValues)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', paddingTop: '0.4rem', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.75rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Ganancia / Pérdida:</span>
-                    <span style={{ fontWeight: '700', color: isGainPositive ? PALETTE.emerald : PALETTE.rose }}>
-                      {isGainPositive ? '+' : ''}{formatMoney(gain, hideValues)}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
     </div>
