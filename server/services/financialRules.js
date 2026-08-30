@@ -110,7 +110,7 @@ async function calculateFinancialMetrics() {
   // 1. Cuentas Líquidas
   const liquidAccounts = await dbAll(`
     SELECT SUM(balance) as total FROM accounts 
-    WHERE (active IS TRUE OR active IS NULL) AND type IN ('bank', 'payroll', 'cash')
+    WHERE (active = 1 OR active IS NULL) AND type IN ('bank', 'payroll', 'cash')
   `);
   const cuentasLiquidas = parseFloat(liquidAccounts[0]?.total || 0);
 
@@ -127,7 +127,7 @@ async function calculateFinancialMetrics() {
 
   const ccAccounts = await dbAll(`
     SELECT SUM(balance) as total FROM accounts
-    WHERE (active IS TRUE OR active IS NULL) AND type = 'credit_card'
+    WHERE (active = 1 OR active IS NULL) AND type = 'credit_card'
   `);
   const totalCCDebt = parseFloat(ccAccounts[0]?.total || 0);
   const totalDeuda = totalDebtsTable + totalCCDebt;

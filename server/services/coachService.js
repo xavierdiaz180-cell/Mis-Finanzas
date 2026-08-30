@@ -7,7 +7,7 @@ const { calculateFinancialMetrics } = require('./financialRules');
  */
 async function getFinancialSnapshot() {
   const metrics = await calculateFinancialMetrics();
-  const accounts = await dbAll('SELECT name, type, balance, available_credit, credit_limit FROM accounts WHERE (active IS TRUE OR active IS NULL)');
+  const accounts = await dbAll('SELECT name, type, balance, available_credit, credit_limit FROM accounts WHERE (active = 1 OR active IS NULL)');
   const debts = await dbAll('SELECT name, type, current_balance, payment_amount, interest_rate, due_date FROM debts WHERE current_balance > 0');
   const investments = await dbAll('SELECT name, invested_amount, current_documented_value, risk_level FROM investments');
   const msiPlans = await dbAll('SELECT concept, monthly_amount, remaining_balance, installments_paid, installments_total FROM installment_plans');

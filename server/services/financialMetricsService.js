@@ -16,7 +16,7 @@ async function getSummaryMetrics(dateFilters = {}) {
   const startDate = dateFilters.startDate || dateFilters.start_date || currentMonthStart;
   const endDate = dateFilters.endDate || dateFilters.end_date || currentMonthEnd;
 
-  const accounts = await dbAll("SELECT * FROM accounts WHERE active IS NOT FALSE AND active::text != '0'");
+  const accounts = await dbAll("SELECT * FROM accounts WHERE (active = 1 OR active IS NULL) AND active::text != '0'");
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
   // 1. LIQUID MONEY TODAY (Real present state)
@@ -210,7 +210,7 @@ async function getCashFlow(periodMonths = 1) {
  */
 async function getUpcomingPayments() {
   const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
-  const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE (active IS TRUE OR active IS NULL)');
+  const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE (active = 1 OR active IS NULL)');
   const msiPlans = await dbAll("SELECT * FROM installment_plans WHERE status = 'active' OR remaining_balance > 0");
 
   const payments = [];

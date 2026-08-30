@@ -9,7 +9,7 @@ const { pool } = require('../database');
  */
 async function getAccounts(req, res) {
   try {
-    const accounts = await dbAll('SELECT * FROM accounts WHERE (active IS TRUE OR active IS NULL) ORDER BY id ASC');
+    const accounts = await dbAll('SELECT * FROM accounts WHERE (active = 1 OR active IS NULL) ORDER BY id ASC');
     const processedAccounts = await enrichAccountsWithMSIData(accounts);
     return res.json(processedAccounts);
   } catch (error) {

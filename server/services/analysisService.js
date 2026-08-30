@@ -57,7 +57,7 @@ async function getFullAnalysisData() {
   const expenseChangePct = prevMonthTrend.expense > 0 ? ((currentMonthExpense - prevMonthTrend.expense) / prevMonthTrend.expense) * 100 : 0;
 
   // 5. 30-Day Expense Forecast (Recurring Expenses + Debts + MSI)
-  const recurringExpenses = await dbAll('SELECT * FROM recurring_expenses WHERE (active IS TRUE OR active IS NULL)');
+  const recurringExpenses = await dbAll('SELECT * FROM recurring_expenses WHERE (active = 1 OR active IS NULL)');
   const debts = await dbAll('SELECT name, payment_amount FROM debts WHERE current_balance > 0');
   const msiPlans = await dbAll('SELECT concept, monthly_amount FROM installment_plans WHERE remaining_balance > 0');
 
@@ -146,7 +146,7 @@ async function getChartsData(filters = {}) {
   const summary = await financialMetricsService.getSummaryMetrics({ startDate: filterStart, endDate: filterEnd });
   const timelines = await financialMetricsService.getTimelines({ startDate: filterStart, endDate: filterEnd });
   const rawInvestments = await dbAll('SELECT * FROM investments ORDER BY id ASC');
-  const accounts = await dbAll("SELECT * FROM accounts WHERE active IS NOT FALSE AND active::text != '0'");
+  const accounts = await dbAll("SELECT * FROM accounts WHERE (active = 1 OR active IS NULL) AND active::text != '0'");
   const debts = await dbAll('SELECT * FROM debts');
   const msiPlans = await dbAll("SELECT * FROM installment_plans WHERE status = 'active' OR remaining_balance > 0 ORDER BY purchase_date ASC, id ASC");
 
@@ -457,3 +457,8 @@ async function getChartsData(filters = {}) {
     insights
   };
 }
+
+module.exports = {
+  getFullAnalysisData,
+  getChartsData
+};

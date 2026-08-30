@@ -180,7 +180,7 @@ app.post('/api/voice/process', async (req, res) => {
       return res.status(400).json({ error: 'Debes proporcionar un texto dictado.' });
     }
 
-    const accounts = await dbAll('SELECT id, name, type FROM accounts WHERE (active IS TRUE OR active IS NULL)');
+    const accounts = await dbAll('SELECT id, name, type FROM accounts WHERE (active = 1 OR active IS NULL)');
     const parsed = await parseVoiceDictation(dictation_text, PREDEFINED_CATEGORIES, accounts);
 
     res.json(parsed);
