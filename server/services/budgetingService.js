@@ -1,10 +1,20 @@
 const { pool, dbGet, dbAll, dbRun } = require('../database');
 
+function getMexicoDateString(dateObj = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  return formatter.format(dateObj);
+}
+
 /**
  * Calculates 24-hour daily budget for Alimentación and Monthly budget for Servicios
  */
 async function getDailyBudgetStatus(currentDateStr = null) {
-  const todayStr = currentDateStr || new Date().toISOString().split('T')[0];
+  const todayStr = currentDateStr || getMexicoDateString();
   const monthStr = todayStr.substring(0, 7);
 
   // 1. CONFIGURATION FROM SETTINGS (Ajustes)
@@ -21,8 +31,19 @@ async function getDailyBudgetStatus(currentDateStr = null) {
     const foodRow = await dbGet(
       `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
        WHERE type IN ('expense', 'card_purchase') 
-         AND LOWER(category) IN ('alimentación', 'alimentacion', 'comida', 'alimentos')
-         AND (date = ? OR date LIKE ?)`,
+         AND (
+           LOWER(category) LIKE '%aliment%' 
+           OR LOWER(category) LIKE '%comid%' 
+           OR LOWER(category) LIKE '%restauran%' 
+           OR LOWER(category) LIKE '%super%' 
+           OR LOWER(category) LIKE '%despensa%'
+           OR LOWER(category) IN ('alimentación', 'alimentacion', 'comida', 'alimentos', 'alimento')
+         )
+         AND (
+           date = ? 
+           OR date LIKE ?
+           OR COALESCE(transaction_datetime, created_at) >= (CURRENT_TIMESTAMP - INTERVAL '24 HOUR')
+         )`,
       [todayStr, `${todayStr}%`]
     );
     foodSpent24h = parseFloat(foodRow?.total || 0);
@@ -44,7 +65,10 @@ async function getDailyBudgetStatus(currentDateStr = null) {
     const servicesRow = await dbGet(
       `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
        WHERE type IN ('expense', 'card_purchase') 
-         AND LOWER(category) IN ('servicios', 'servicio')
+         AND (
+           LOWER(category) LIKE '%servicio%' 
+           OR LOWER(category) IN ('servicios', 'servicio', 'luz', 'agua', 'internet', 'gas', 'telefono')
+         )
          AND (date LIKE ? OR date = ?)`,
       [`${monthStr}%`, monthStr]
     );
