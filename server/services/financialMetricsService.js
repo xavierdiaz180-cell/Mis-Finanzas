@@ -16,7 +16,7 @@ async function getSummaryMetrics(dateFilters = {}) {
   const startDate = dateFilters.startDate || dateFilters.start_date || currentMonthStart;
   const endDate = dateFilters.endDate || dateFilters.end_date || currentMonthEnd;
 
-  const accounts = await dbAll("SELECT * FROM accounts WHERE active != 0 OR active IS NULL");
+  const accounts = await dbAll("SELECT * FROM accounts WHERE active IS NOT FALSE AND active::text != '0'");
   const enrichedAccounts = await enrichAccountsWithMSIData(accounts);
 
   // 1. LIQUID MONEY TODAY (Real present state)
@@ -58,7 +58,7 @@ async function getSummaryMetrics(dateFilters = {}) {
   // 7. PERIOD ACTIVITY (Between startDate and endDate)
   const periodTxs = await dbAll(
     `SELECT type, amount, date FROM transactions 
-     WHERE date >= ? AND date <= ? AND (status = 'confirmed' OR status IS NULL)`,
+     WHERE date >= ? AND date <= ? AND (status != 'cancelled' OR status IS NULL)`,
     [startDate, endDate]
   );
 
@@ -92,7 +92,7 @@ async function getSummaryMetrics(dateFilters = {}) {
   // All transactions that happened on or after startDate are rolled back from current liquid money
   const futureTxs = await dbAll(
     `SELECT type, amount FROM transactions 
-     WHERE date >= ? AND (status = 'confirmed' OR status IS NULL)`,
+     WHERE date >= ? AND (status != 'cancelled' OR status IS NULL)`,
     [startDate]
   );
 
@@ -210,7 +210,7 @@ async function getCashFlow(periodMonths = 1) {
  */
 async function getUpcomingPayments() {
   const debts = await dbAll('SELECT * FROM debts WHERE current_balance > 0');
-  const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE active = 1');
+  const recurring = await dbAll('SELECT * FROM recurring_expenses WHERE (active IS TRUE OR active IS NULL)');
   const msiPlans = await dbAll("SELECT * FROM installment_plans WHERE status = 'active' OR remaining_balance > 0");
 
   const payments = [];
@@ -254,7 +254,7 @@ async function getUpcomingPayments() {
 async function getTimelines(filters = {}) {
   const currentSummary = await getSummaryMetrics(filters);
   const investments = await dbAll('SELECT * FROM investments');
-  const transactions = await dbAll("SELECT * FROM transactions WHERE (status = 'confirmed' OR status IS NULL) ORDER BY date ASC, id ASC");
+  const transactions = await dbAll("SELECT * FROM transactions WHERE (status != 'cancelled' OR status IS NULL) ORDER BY date ASC, id ASC");
 
   const todayStr = new Date().toISOString().split('T')[0];
 
