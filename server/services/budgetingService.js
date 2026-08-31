@@ -22,11 +22,11 @@ async function getDailyBudgetStatus(currentDateStr = null) {
   const settingsMap = {};
   settingsRows.forEach(r => { settingsMap[r.key] = r.value; });
 
-  const foodDailyLimit = parseFloat(settingsMap.daily_budget_limit || 200);
+  const foodDailyLimit = parseFloat(settingsMap.daily_budget_limit || 150);
   const servicesMonthlyLimit = parseFloat(settingsMap.services_budget_limit || 1500);
 
-  // 2. DAILY FOOD BUDGET (ALIMENTACIÓN - 24 HORAS)
-  let foodSpent24h = 0;
+  // 2. DAILY FOOD BUDGET (ALIMENTACIÓN - GASTADO HOY EN LA FECHA ACTUAL)
+  let foodSpentToday = 0;
   try {
     const foodRow = await dbGet(
       `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
@@ -42,24 +42,23 @@ async function getDailyBudgetStatus(currentDateStr = null) {
          AND (
            date = ? 
            OR date LIKE ?
-           OR COALESCE(transaction_datetime, created_at) >= (CURRENT_TIMESTAMP - INTERVAL '24 HOUR')
          )`,
       [todayStr, `${todayStr}%`]
     );
-    foodSpent24h = parseFloat(foodRow?.total || 0);
+    foodSpentToday = parseFloat(foodRow?.total || 0);
   } catch (e) {
     console.error('Error querying daily food spent:', e);
   }
 
-  const foodAvailableToday = foodDailyLimit - foodSpent24h;
+  const foodAvailableToday = foodDailyLimit - foodSpentToday;
   let foodStatus = 'LESS_THAN_BUDGET';
-  if (foodSpent24h === foodDailyLimit) {
+  if (foodSpentToday === foodDailyLimit) {
     foodStatus = 'ON_BUDGET';
-  } else if (foodSpent24h > foodDailyLimit) {
+  } else if (foodSpentToday > foodDailyLimit) {
     foodStatus = 'OVER_BUDGET';
   }
 
-  // 3. MONTHLY SERVICES BUDGET (SERVICIOS - MENSUAL)
+  // 3. MONTHLY SERVICES BUDGET (SERVICIOS - GASTADO EN EL MES EN CURSO)
   let servicesSpentMonth = 0;
   try {
     const servicesRow = await dbGet(
@@ -88,27 +87,31 @@ async function getDailyBudgetStatus(currentDateStr = null) {
   return {
     // Presupuesto de Alimentación (24 Horas)
     budget_amount: foodDailyLimit,
-    actual_spent: foodSpent24h,
+    base_amount: foodDailyLimit,
+    actual_spent: foodSpentToday,
+    actual_spent_today: foodSpentToday,
+    gastado_hoy: foodSpentToday,
     available_today: foodAvailableToday,
+    disponible_hoy: foodAvailableToday,
     variance: foodAvailableToday,
     result: foodStatus,
     limite_diario: foodDailyLimit,
-    gastado_hoy: foodSpent24h,
-    disponible_hoy: foodAvailableToday,
     categoria: 'Alimentación',
     frecuencia: '24 Horas',
-    reinicio: 'Cada 24 Horas (acumulado reinicia el 1° de mes)',
+    reinicio: 'Cada 24 Horas (reinicio a las 00:00 cada día)',
 
     // Presupuesto de Servicios (Mensual)
     servicios: {
       budget_amount: servicesMonthlyLimit,
+      base_amount: servicesMonthlyLimit,
       actual_spent: servicesSpentMonth,
+      actual_spent_mes: servicesSpentMonth,
+      gastado_mes: servicesSpentMonth,
       available_month: servicesAvailableMonth,
+      disponible_mes: servicesAvailableMonth,
       variance: servicesAvailableMonth,
       result: servicesStatus,
       limite_mensual: servicesMonthlyLimit,
-      gastado_mes: servicesSpentMonth,
-      disponible_mes: servicesAvailableMonth,
       categoria: 'Servicios',
       frecuencia: 'Mensual',
       reinicio: '1 de cada mes'

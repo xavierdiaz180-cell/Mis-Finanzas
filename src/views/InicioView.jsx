@@ -242,23 +242,27 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
                 Presupuesto Alimentación (24h)
               </span>
               <h4 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#f8fafc' }}>
-                {presupuesto_diario.base_amount ? formatMoney(presupuesto_diario.base_amount, hideValues) : '$150.00'}/día
+                {formatMoney(presupuesto_diario.budget_amount || presupuesto_diario.base_amount || presupuesto_diario.limite_diario || 150, hideValues)}/día
               </h4>
             </div>
-            <span className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>
-              {presupuesto_diario.available_today >= 0 ? 'Disponible Hoy' : 'Excedido'}
+            <span className="badge" style={{
+              background: (presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0)) >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)',
+              color: (presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0)) >= 0 ? '#34d399' : '#fb7185',
+              border: `1px solid ${(presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0)) >= 0 ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)'}`
+            }}>
+              {(presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0)) >= 0 ? 'Disponible Hoy' : 'Excedido'}
             </span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '0.5rem 0' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Disponible para hoy:</span>
-            <span style={{ fontSize: '1.5rem', fontWeight: '700', color: (presupuesto_diario.available_today || 0) >= 0 ? '#34d399' : '#f43f5e' }}>
-              {formatMoney(presupuesto_diario.available_today || 0, hideValues)}
+            <span style={{ fontSize: '1.5rem', fontWeight: '700', color: (presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0)) >= 0 ? '#34d399' : '#f43f5e' }}>
+              {formatMoney(presupuesto_diario.available_today !== undefined ? presupuesto_diario.available_today : (presupuesto_diario.disponible_hoy || 0), hideValues)}
             </span>
           </div>
 
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            Gastado hoy: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_diario.actual_spent_today || 0, hideValues)}</strong>
+            Gastado hoy: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_diario.actual_spent !== undefined ? presupuesto_diario.actual_spent : (presupuesto_diario.gastado_hoy || 0), hideValues)}</strong>
           </div>
         </div>
 
@@ -286,7 +290,7 @@ export default function InicioView({ summary: initialSummary, onNavigate, onRefr
           </div>
 
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            Gastado en servicios: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_servicios.actual_spent || 0, hideValues)}</strong>
+            Gastado en servicios: <strong style={{ color: 'var(--text-primary)' }}>{formatMoney(presupuesto_servicios.actual_spent !== undefined ? presupuesto_servicios.actual_spent : (presupuesto_servicios.gastado_mes || 0), hideValues)}</strong>
           </div>
         </div>
       </div>
